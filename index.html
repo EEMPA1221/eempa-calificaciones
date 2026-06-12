@@ -1032,11 +1032,17 @@ async function eliminarDocente(id, nombre) {
 // ═══════════════════════════════════════
 async function loadAsignaciones() {
   const {data:asigs} = await sb.from('docente_asignacion')
-    .select('*, usuarios(nombre,apellido), cursos(nombre), materias(nombre)').order('id');
+    .select('*, usuarios(nombre,apellido), cursos(nombre), materias(nombre)');
   if (!asigs?.length) {
     document.getElementById('tbody-asignaciones').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin asignaciones.</p></div></td></tr>';
     return;
   }
+  // Ordenar alfabéticamente por apellido del docente
+  asigs.sort((a,b) => {
+    const apA = (a.usuarios?.apellido||'').toLowerCase();
+    const apB = (b.usuarios?.apellido||'').toLowerCase();
+    return apA.localeCompare(apB, 'es');
+  });
   document.getElementById('tbody-asignaciones').innerHTML = asigs.map(a=>`<tr>
     <td>${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
     <td>${esc(a.cursos?.nombre)}</td>
@@ -1068,8 +1074,17 @@ async function saveAsignacion() {
   const curso_id=document.getElementById('asig-curso').value;
   const materia_id=document.getElementById('asig-materia').value;
   if (!docente_id||!curso_id||!materia_id) { toast('Completá todos los campos','error'); return; }
+  // Verificar si ya hay un docente asignado a esa materia/curso
+  const {data:existe} = await sb.from('docente_asignacion')
+    .select('id, usuarios(nombre,apellido)')
+    .eq('curso_id',curso_id).eq('materia_id',materia_id);
+  if (existe?.length) {
+    const doc = existe[0].usuarios;
+    toast(`Esta materia ya tiene asignado a ${doc?.apellido}, ${doc?.nombre}. Eliminá esa asignación primero.`,'error');
+    return;
+  }
   const {error} = await sb.from('docente_asignacion').insert({docente_id,curso_id,materia_id});
-  if (error) { toast(error.code==='23505'?'Ya existe esa asignación':error.message,'error'); return; }
+  if (error) { toast(error.message,'error'); return; }
   toast('Asignación creada','success'); closeM('modal-asignacion'); loadAsignaciones();
 }
 async function deleteAsig(id) {
