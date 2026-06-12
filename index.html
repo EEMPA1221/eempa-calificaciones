@@ -455,7 +455,7 @@ tbody tr:hover{background:var(--surface2);}
         <select id="periodo-tipo">
           <option value="1C">1° Cuatrimestre</option>
           <option value="2C">2° Cuatrimestre</option>
-          <option value="REC">Calificación Parcial</option>
+          <option value="REC">Recuperatorio</option>
           <option value="EXR">Examen Regular</option>
         </select>
       </div>
@@ -702,7 +702,7 @@ function loadSec(id) {
 // ═══ HELPERS ═══
 function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
 function tipoPeriodoLabel(tipo) {
-  return {'1C':'1° Cuatrimestre','2C':'2° Cuatrimestre','REC':'Calificación Parcial','EXR':'Examen Regular'}[tipo] || tipo;
+  return {'1C':'1° Cuatrimestre','2C':'2° Cuatrimestre','REC':'Recuperatorio','EXR':'Examen Regular'}[tipo] || tipo;
 }
 // Umbral de aprobación para cuatrimestres (nota >= APROBADO_MIN)
 const APROBADO_MIN = 7;
@@ -1152,16 +1152,21 @@ async function loadSeguimiento() {
         +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Materia</th>'
         +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Docente</th>'
         +'<th style="padding:8px 12px;font-size:11px;text-align:center;">Estado</th>'
+        +'<th style="padding:8px 12px;font-size:11px;text-align:center;">Acciones</th>'
         +'</tr></thead><tbody>';
       for (const a of ca) {
         const cal=(cals||[]).find(x=>x.docente_id===a.docente_id&&x.curso_id===a.curso_id&&x.materia_id===a.materia_id);
         const badge=!cal?'<span class="badge badge-red">Pendiente</span>'
           :cal.finalizada?'<span class="badge badge-green">Finalizado</span>'
           :'<span class="badge badge-yellow">En proceso</span>';
+        const btnReabrir = cal?.finalizada
+          ? `<button class="btn btn-sm btn-danger" onclick="reabrirCarga('${a.docente_id}','${a.curso_id}','${a.materia_id}','${pid}','${esc(a.usuarios?.apellido)} ${esc(a.usuarios?.nombre)}','${esc(a.materias?.nombre)}')">🔓 Reabrir</button>`
+          : '<span style="color:var(--text3);font-size:12px;">—</span>';
         html+=`<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:10px 12px;font-size:13px;">${esc(a.materias?.nombre)}</td>
           <td style="padding:10px 12px;font-size:13px;">${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
           <td style="padding:10px 12px;text-align:center;">${badge}</td>
+          <td style="padding:10px 12px;text-align:center;">${btnReabrir}</td>
         </tr>`;
       }
       html+='</tbody></table>';
@@ -1169,6 +1174,20 @@ async function loadSeguimiento() {
     html+='</div>';
   }
   document.getElementById('seguimiento-content').innerHTML = html;
+}
+
+// ═══ REABRIR CARGA ═══
+async function reabrirCarga(docenteId, cursoId, materiaId, periodoId, docenteNombre, materiaNombre) {
+  const ok = confirm(`¿Reabrir la carga de "${materiaNombre}" del docente ${docenteNombre}?\n\nEl docente podrá volver a editar las calificaciones.`);
+  if (!ok) return;
+  const {error} = await sb.from('calificaciones').update({finalizada: false})
+    .eq('docente_id', docenteId)
+    .eq('curso_id', cursoId)
+    .eq('materia_id', materiaId)
+    .eq('periodo_id', periodoId);
+  if (error) { toast('Error al reabrir: ' + error.message, 'error'); return; }
+  toast(`Carga de ${materiaNombre} reabierta`, 'success');
+  loadSeguimiento();
 }
 
 // ═══════════════════════════════════════
