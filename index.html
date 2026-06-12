@@ -1226,8 +1226,11 @@ async function loadExportar() {
           ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
         </select>
       </div>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;" onclick="exportarResumenAnual()">
-        ⬇ Descargar planilla resumen anual
+      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;margin-bottom:10px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
+        ⬇ Descargar resumen 1° Cuatrimestre
+      </button>
+      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(2)">
+        ⬇ Descargar resumen 2° Cuatrimestre
       </button>
     </div>`;
 }
@@ -1255,6 +1258,12 @@ async function exportarExcel() {
       sb.from('calificaciones').select('*').eq('curso_id',curso.id).eq('periodo_id',pid),
     ]);
     const materias = (cms||[]).map(x=>x.materias);
+    const PASTEL = [
+      {bg:'FFD6D6',ft:'8B0000'},{bg:'D6EAFF',ft:'003580'},{bg:'D6FFD6',ft:'1A5C1A'},
+      {bg:'FFF3CC',ft:'7A5800'},{bg:'E8D6FF',ft:'4B0082'},{bg:'FFE8D6',ft:'7A3000'},
+      {bg:'D6FFF5',ft:'006B4F'},{bg:'FFD6F0',ft:'7A0050'},{bg:'E8FFD6',ft:'3B5A00'},
+      {bg:'D6D6FF',ft:'1A007A'}
+    ];
     const header = ['Apellido','Nombre','DNI',...materias.map(m=>m.nombre),'Promedio','Fecha carga'];
     const rows = (alumnos||[]).map(a=>{
       const notas = materias.map(m=>{
@@ -1278,15 +1287,24 @@ async function exportarExcel() {
     const notaEndCol   = 3 + materias.length;
     const totalCols    = notaEndCol + 2;
 
-    // Cabecera azul institucional
-    for (let c = 0; c < totalCols; c++) {
+    // Cabecera: azul para primeras 3 cols, pastel por materia
+    for (let c = 0; c < 3; c++) {
       const cellRef = XLSX.utils.encode_cell({r:0, c});
       if (!ws[cellRef]) continue;
-      ws[cellRef].s = {
-        font:{bold:true, color:{rgb:'FFFFFF'}},
-        fill:{fgColor:{rgb:'1E3A8A'}},
-        alignment:{horizontal:'center'}
-      };
+      ws[cellRef].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+    }
+    for (let mi = 0; mi < materias.length; mi++) {
+      const p = PASTEL[mi % PASTEL.length];
+      const c = notaStartCol + mi;
+      const cellRef = XLSX.utils.encode_cell({r:0, c});
+      if (!ws[cellRef]) continue;
+      ws[cellRef].s = {font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};
+    }
+    // Promedio y Fecha: azul
+    for (let c = notaEndCol; c < totalCols; c++) {
+      const cellRef = XLSX.utils.encode_cell({r:0, c});
+      if (!ws[cellRef]) continue;
+      ws[cellRef].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
     }
 
     // Colores: rojo 1-3 (aplazo), verde 4-6 (desaprobado), azul 7-10 (aprobado), gris A/SC
@@ -1330,18 +1348,23 @@ async function exportarExcel() {
 // ═══════════════════════════════════════
 // EXPORTAR RESUMEN ANUAL
 // ═══════════════════════════════════════
-async function exportarResumenAnual() {
+async function exportarResumenCuatrimestre(cual) {
   const anio = parseInt(document.getElementById('exp-anio').value);
   const cval = document.getElementById('exp-curso-resumen').value;
   if (!anio) { toast('Seleccioná un año','error'); return; }
-  toast('Generando resumen anual...','');
+  toast('Generando resumen...','');
 
-  // Traer todos los períodos del año
+  const PASTEL = [
+    {bg:'FFD6D6',ft:'8B0000'},{bg:'D6EAFF',ft:'003580'},{bg:'D6FFD6',ft:'1A5C1A'},
+    {bg:'FFF3CC',ft:'7A5800'},{bg:'E8D6FF',ft:'4B0082'},{bg:'FFE8D6',ft:'7A3000'},
+    {bg:'D6FFF5',ft:'006B4F'},{bg:'FFD6F0',ft:'7A0050'},{bg:'E8FFD6',ft:'3B5A00'},
+    {bg:'D6D6FF',ft:'1A007A'}
+  ];
+
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
-  const p1c  = periodos?.find(p=>p.tipo==='1C');
-  const p2c  = periodos?.find(p=>p.tipo==='2C');
-  const prec = periodos?.find(p=>p.tipo==='REC');
-  const pexr = periodos?.find(p=>p.tipo==='EXR');
+  const pBase = periodos?.find(p=>p.tipo===(cual===1?'1C':'2C'));
+  const prec  = periodos?.find(p=>p.tipo==='REC');
+  const pexr  = periodos?.find(p=>p.tipo==='EXR');
 
   let cursosArr;
   if (cval==='todos') {
@@ -1353,16 +1376,16 @@ async function exportarResumenAnual() {
   }
 
   const wb = XLSX.utils.book_new();
+  const periodoIds = [pBase,prec,pexr].filter(Boolean).map(p=>p.id);
 
   for (const curso of cursosArr) {
     const [{data:cms},{data:alumnos},{data:cals}] = await Promise.all([
       sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',curso.id),
       sb.from('alumnos').select('*').eq('curso_id',curso.id).eq('activo',true).order('apellido'),
-      sb.from('calificaciones').select('*').eq('curso_id',curso.id).in('periodo_id',[p1c,p2c,prec,pexr].filter(Boolean).map(p=>p.id)),
+      sb.from('calificaciones').select('*').eq('curso_id',curso.id).in('periodo_id',periodoIds),
     ]);
     const materias = (cms||[]).map(x=>x.materias);
 
-    // Función para obtener nota de un alumno en una materia en un período
     const getNota = (alumnoId, materiaId, periodoId) => {
       if (!periodoId) return '';
       const c = (cals||[]).find(x=>x.alumno_id===alumnoId&&x.materia_id===materiaId&&x.periodo_id===periodoId);
@@ -1370,142 +1393,163 @@ async function exportarResumenAnual() {
       return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
     };
 
-    // Nota final de un cuatrimestre (última instancia aprobada: cuatrimestre → recup → examen)
-    const getNotaFinal = (alumnoId, materiaId, periodoBase, periodoRecup, periodoExamen) => {
-      const nb = getNota(alumnoId, materiaId, periodoBase?.id);
-      const nr = getNota(alumnoId, materiaId, periodoRecup?.id);
-      const ne = getNota(alumnoId, materiaId, periodoExamen?.id);
-      const aprobada = (n) => n!=='' && n!=='A' && n!=='SC' && parseInt(n)>=4;
-      if (aprobada(nb)) return {nota: nb, aprobada: true};
-      if (aprobada(nr)) return {nota: nr, aprobada: true};
-      if (aprobada(ne)) return {nota: ne, aprobada: true};
-      // Devolver la última nota cargada aunque no apruebe
-      const ultima = ne!=='' ? ne : nr!=='' ? nr : nb;
-      return {nota: ultima, aprobada: false};
+    const aprobada = (n) => n!==''&&n!=='A'&&n!=='SC'&&parseInt(n)>=4;
+
+    const getNotaFinal = (alumnoId, materiaId) => {
+      const nb = getNota(alumnoId, materiaId, pBase?.id);
+      const nr = getNota(alumnoId, materiaId, prec?.id);
+      const ne = getNota(alumnoId, materiaId, pexr?.id);
+      if (aprobada(nb)) return {nota:nb, aprobada:true};
+      if (aprobada(nr)) return {nota:nr, aprobada:true};
+      if (aprobada(ne)) return {nota:ne, aprobada:true};
+      const ultima = ne!==''?ne:nr!==''?nr:nb;
+      return {nota:ultima, aprobada:false};
     };
 
-    // Construir encabezado
-    // Estructura: Apellido | Nombre | DNI | [por materia: 1°C | Rec1 | ExR1 | FINAL1C | 2°C | Rec2 | ExR2 | FINAL2C] | Promedio Final | Materias Adeudadas
-    const header1 = ['','',''];
-    const header2 = ['Apellido','Nombre','DNI'];
+    // Header fila 1: nombre materia (fusionado 4 cols cada una)
+    const header1 = ['Apellido','Nombre','DNI'];
+    const header2 = ['','',''];
     for (const m of materias) {
-      header1.push(m.nombre,'','','', m.nombre,'','','');
-      header2.push('1°Cuatrim','Recuper.','Ex.Regular','FINAL 1°C','2°Cuatrim','Recuper.','Ex.Regular','FINAL 2°C');
+      header1.push(m.nombre,'','','');
+      header2.push(cual===1?'1°Cuatrim':'2°Cuatrim','Recuper.','Ex.Regular','NOTA FINAL');
     }
     header1.push('','');
-    header2.push('Promedio Final','Materias Adeudadas');
+    header2.push('Promedio','Materias Adeudadas');
 
     const rows = [];
     for (const a of alumnos) {
       const row = [a.apellido, a.nombre, a.dni||''];
       const notasFinales = [];
       const adeudadas = [];
-
       for (const m of materias) {
-        const n1c  = getNota(a.id, m.id, p1c?.id);
-        const nrec = getNota(a.id, m.id, prec?.id);
-        const nexr = getNota(a.id, m.id, pexr?.id);
-        const n2c  = getNota(a.id, m.id, p2c?.id);
-        const nrec2 = getNota(a.id, m.id, prec?.id); // mismo período recuperatorio
-        const nexr2 = getNota(a.id, m.id, pexr?.id);
-
-        const f1c = getNotaFinal(a.id, m.id, p1c, prec, pexr);
-        const f2c = getNotaFinal(a.id, m.id, p2c, prec, pexr);
-
-        row.push(n1c, nrec, nexr, f1c.nota);
-        row.push(n2c, nrec2, nexr2, f2c.nota);
-
-        if (f1c.nota!=='' || f2c.nota!=='') {
-          if (f1c.aprobada && f1c.nota!=='') notasFinales.push(parseFloat(f1c.nota));
-          else if (!f1c.aprobada && (n1c!==''||nrec!==''||nexr!=='')) adeudadas.push(m.nombre+' (1°C)');
-
-          if (f2c.aprobada && f2c.nota!=='') notasFinales.push(parseFloat(f2c.nota));
-          else if (!f2c.aprobada && (n2c!==''||nrec2!==''||nexr2!=='')) adeudadas.push(m.nombre+' (2°C)');
-        }
+        const nb = getNota(a.id, m.id, pBase?.id);
+        const nr = getNota(a.id, m.id, prec?.id);
+        const ne = getNota(a.id, m.id, pexr?.id);
+        const fin = getNotaFinal(a.id, m.id);
+        row.push(nb, nr, ne, fin.nota);
+        if (fin.aprobada && fin.nota!=='') notasFinales.push(parseFloat(fin.nota));
+        else if (!fin.aprobada && (nb!==''||nr!==''||ne!=='')) adeudadas.push(m.nombre);
       }
-
-      const prom = notasFinales.length ? (notasFinales.reduce((s,n)=>s+n,0)/notasFinales.length).toFixed(1) : '';
+      const prom = notasFinales.length?(notasFinales.reduce((s,n)=>s+n,0)/notasFinales.length).toFixed(1):'';
       row.push(prom, adeudadas.join(', '));
       rows.push(row);
     }
 
     const ws = XLSX.utils.aoa_to_sheet([header1, header2, ...rows]);
 
-    // Anchos de columna
+    // Anchos
     ws['!cols'] = [{wch:22},{wch:16},{wch:12}];
-    for (const m of materias) ws['!cols'].push({wch:10},{wch:10},{wch:10},{wch:12},{wch:10},{wch:10},{wch:10},{wch:12});
-    ws['!cols'].push({wch:14},{wch:40});
+    for (const m of materias) ws['!cols'].push({wch:11},{wch:11},{wch:11},{wch:13});
+    ws['!cols'].push({wch:12},{wch:45});
 
-    // Fusionar celdas del header de materia (header1)
-    ws['!merges'] = ws['!merges'] || [];
-    let colIdx = 3;
+    // Fusiones header1 (nombre materia)
+    ws['!merges'] = [];
+    let ci = 3;
     for (const m of materias) {
-      ws['!merges'].push({s:{r:0,c:colIdx},e:{r:0,c:colIdx+3}});
-      ws['!merges'].push({s:{r:0,c:colIdx+4},e:{r:0,c:colIdx+7}});
-      colIdx += 8;
+      ws['!merges'].push({s:{r:0,c:ci},e:{r:0,c:ci+3}});
+      ci += 4;
     }
 
-    // Estilos encabezado fila 1 (nombres de materia)
-    const totalCols = 3 + materias.length * 8 + 2;
-    for (let c = 0; c < totalCols; c++) {
+    const totalCols = 3 + materias.length*4 + 2;
+
+    // Estilos header fila 1 — color pastel por materia
+    // Primeras 3 cols: azul institucional
+    for (let c=0;c<3;c++) {
       const ref = XLSX.utils.encode_cell({r:0,c});
-      if (!ws[ref]) ws[ref] = {v:'',t:'s'};
-      ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
     }
-    // Estilos encabezado fila 2
-    for (let c = 0; c < totalCols; c++) {
-      const ref = XLSX.utils.encode_cell({r:1,c});
-      if (!ws[ref]) ws[ref] = {v:'',t:'s'};
-      ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center',wrapText:true}};
+    ci = 3;
+    for (let mi=0;mi<materias.length;mi++) {
+      const p = PASTEL[mi % PASTEL.length];
+      for (let cc=ci;cc<ci+4;cc++) {
+        const ref = XLSX.utils.encode_cell({r:0,c:cc});
+        if (!ws[ref]) ws[ref]={v:'',t:'s'};
+        ws[ref].s={font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};
+      }
+      ci+=4;
+    }
+    // Últimas 2 cols header1
+    for (let c=ci;c<totalCols;c++) {
+      const ref=XLSX.utils.encode_cell({r:0,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
     }
 
-    // Colores en notas finales y promedio
-    rows.forEach((row, ri) => {
-      const r = ri + 2;
-      let colIdx = 3;
-      for (let m = 0; m < materias.length; m++) {
-        // FINAL 1°C col = colIdx+3, FINAL 2°C col = colIdx+7
-        [colIdx+3, colIdx+7].forEach(fc => {
-          const ref = XLSX.utils.encode_cell({r,c:fc});
-          if (!ws[ref] || ws[ref].v==='') return;
-          const v = ws[ref].v;
-          let rgb, fontRgb, bold=true;
-          if (v==='A'||v==='SC') { rgb='EEEEEE'; fontRgb='555555'; }
-          else {
-            const n = parseInt(v);
-            if (n<=3) { rgb='FFE0E0'; fontRgb='B52A2A'; }
-            else if (n<=6) { rgb='E0F5E8'; fontRgb='1A6E3A'; }
-            else { rgb='E0EEFF'; fontRgb='1E47C9'; }
-          }
-          ws[ref].s = {fill:{fgColor:{rgb}},font:{bold,color:{rgb:fontRgb}},alignment:{horizontal:'center'}};
-        });
-        colIdx += 8;
+    // Estilos header fila 2 — subcolumnas con pastel más oscuro
+    for (let c=0;c<3;c++) {
+      const ref=XLSX.utils.encode_cell({r:1,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center',wrapText:true}};
+    }
+    ci=3;
+    for (let mi=0;mi<materias.length;mi++) {
+      const p = PASTEL[mi % PASTEL.length];
+      for (let cc=ci;cc<ci+4;cc++) {
+        const ref=XLSX.utils.encode_cell({r:1,c:cc});
+        if (!ws[ref]) ws[ref]={v:'',t:'s'};
+        ws[ref].s={font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center',wrapText:true}};
+      }
+      ci+=4;
+    }
+    for (let c=ci;c<totalCols;c++) {
+      const ref=XLSX.utils.encode_cell({r:1,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center'}};
+    }
+
+    // Color notas en filas de datos
+    const notaColor = (v) => {
+      if (v==='A'||v==='SC') return {bg:'EEEEEE',ft:'555555',bold:false};
+      const n=parseInt(v);
+      if (n<=3) return {bg:'FFE0E0',ft:'B52A2A',bold:true};
+      if (n<=6) return {bg:'E0F5E8',ft:'1A6E3A',bold:false};
+      return {bg:'E0EEFF',ft:'1E47C9',bold:false};
+    };
+
+    rows.forEach((row,ri)=>{
+      const r=ri+2;
+      ci=3;
+      for (let mi=0;mi<materias.length;mi++) {
+        const p=PASTEL[mi%PASTEL.length];
+        // columnas base, recup, exreg: fondo pastel suave
+        for (let cc=ci;cc<ci+3;cc++) {
+          const ref=XLSX.utils.encode_cell({r,c:cc});
+          if (!ws[ref]||ws[ref].v==='') { if(ws[ref]) ws[ref].s={fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}}; continue; }
+          const nc=notaColor(ws[ref].v);
+          ws[ref].s={fill:{fgColor:{rgb:nc.bg}},font:{bold:nc.bold,color:{rgb:nc.ft}},alignment:{horizontal:'center'}};
+        }
+        // columna NOTA FINAL: más énfasis
+        const finalRef=XLSX.utils.encode_cell({r,c:ci+3});
+        if (ws[finalRef]&&ws[finalRef].v!=='') {
+          const nc=notaColor(ws[finalRef].v);
+          ws[finalRef].s={fill:{fgColor:{rgb:nc.bg}},font:{bold:true,color:{rgb:nc.ft},sz:11},alignment:{horizontal:'center'}};
+        }
+        ci+=4;
       }
       // Promedio
-      const promRef = XLSX.utils.encode_cell({r, c: 3+materias.length*8});
-      if (ws[promRef] && ws[promRef].v!=='') {
-        const pv = parseFloat(ws[promRef].v);
-        let pRgb='EEEEEE', pFont='555555';
-        if (!isNaN(pv)) {
-          if (pv<=3) { pRgb='FFE0E0'; pFont='B52A2A'; }
-          else if (pv<=6) { pRgb='E0F5E8'; pFont='1A6E3A'; }
-          else { pRgb='E0EEFF'; pFont='1E47C9'; }
-        }
-        ws[promRef].s = {fill:{fgColor:{rgb:pRgb}},font:{bold:true,color:{rgb:pFont}},alignment:{horizontal:'center'}};
+      const promRef=XLSX.utils.encode_cell({r,c:ci});
+      if (ws[promRef]&&ws[promRef].v!=='') {
+        const pv=parseFloat(ws[promRef].v);
+        let pRgb='EEEEEE',pFont='555555';
+        if(!isNaN(pv)){if(pv<=3){pRgb='FFE0E0';pFont='B52A2A';}else if(pv<=6){pRgb='E0F5E8';pFont='1A6E3A';}else{pRgb='E0EEFF';pFont='1E47C9';}}
+        ws[promRef].s={fill:{fgColor:{rgb:pRgb}},font:{bold:true,color:{rgb:pFont}},alignment:{horizontal:'center'}};
       }
-      // Materias adeudadas
-      const adRef = XLSX.utils.encode_cell({r, c: 3+materias.length*8+1});
-      if (ws[adRef] && ws[adRef].v!=='') {
-        ws[adRef].s = {font:{bold:true,color:{rgb:'B52A2A'}},fill:{fgColor:{rgb:'FFE0E0'}}};
+      // Adeudadas
+      const adRef=XLSX.utils.encode_cell({r,c:ci+1});
+      if (ws[adRef]&&ws[adRef].v!=='') {
+        ws[adRef].s={font:{bold:true,color:{rgb:'B52A2A'}},fill:{fgColor:{rgb:'FFE0E0'}}};
       }
     });
 
     XLSX.utils.book_append_sheet(wb, ws, curso.nombre.replace(/[:\/?*\[\]]/g,'').substring(0,31));
   }
 
-  XLSX.writeFile(wb, `EEMPA_Resumen_${anio}.xlsx`);
+  const label = cual===1?'1erCuat':'2doCuat';
+  XLSX.writeFile(wb, `EEMPA_Resumen_${label}_${anio}.xlsx`);
   toast('Planilla resumen descargada','success');
 }
+
 
 // ═══════════════════════════════════════
 // PANEL DOCENTE
