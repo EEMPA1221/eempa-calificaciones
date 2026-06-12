@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EEMPA · Calificaciones</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<style>
+:root {
+  --bg:#f0f2f8;--surface:#fff;--surface2:#f5f6fa;--border:#dde0eb;
+  --text:#1a1930;--text2:#5c6080;--text3:#9a9db8;
+  --accent:#3b5bdb;--accent-bg:#eef1fd;--accent-dark:#2f4abf;
+  --green:#1a7a4a;--green-bg:#e8f5ee;
+  --yellow:#8a6400;--yellow-bg:#fef9e6;
+  --red:#b52a2a;--red-bg:#fdeaea;
+  --radius:10px;--radius-lg:16px;
+  --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-lg:0 6px 24px rgba(59,91,219,.13);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;min-height:100vh;}
+
+#toast{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+.toast-item{background:var(--text);color:#fff;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;animation:slideIn .2s ease;max-width:300px;}
+.toast-item.success{background:var(--green);}
+.toast-item.error{background:var(--red);}
+@keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+#config-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:8000;}
+.config-box{background:var(--surface);border-radius:var(--radius-lg);padding:36px;width:100%;max-width:480px;box-shadow:var(--shadow-lg);}
+.config-box h2{font-size:20px;font-weight:600;margin-bottom:6px;}
+.config-box p{color:var(--text2);font-size:13px;margin-bottom:24px;line-height:1.6;}
+.config-box label{display:block;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;}
+.config-box input{width:100%;border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-family:'DM Mono',monospace;font-size:12px;background:var(--surface2);margin-bottom:14px;transition:border-color .15s;}
+.config-box input:focus{outline:none;border-color:var(--accent);}
+
+#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#1e2a6e 0%,#3b5bdb 50%,#5e8af7 100%);}
+.login-card{background:var(--surface);border-radius:20px;padding:48px 44px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(30,42,110,.35);border:none;}
+.login-logo{width:64px;height:64px;background:linear-gradient(135deg,var(--accent-dark),var(--accent));border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;box-shadow:0 6px 18px rgba(59,91,219,.4);}
+.login-logo svg{width:32px;height:32px;fill:white;}
+.login-card h1{font-size:26px;font-weight:700;margin-bottom:2px;text-align:center;letter-spacing:-.02em;}
+.login-card .school{font-size:12px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.1em;text-align:center;margin-bottom:4px;}
+.login-card .subtitle{color:var(--text2);font-size:13px;margin-bottom:32px;text-align:center;}
+.login-card label{display:block;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;}
+.login-card input{width:100%;border:1.5px solid var(--border);border-radius:var(--radius);padding:11px 14px;font-size:14px;font-family:'DM Sans',sans-serif;background:var(--surface2);margin-bottom:14px;transition:border-color .15s;}
+.login-card input:focus{outline:none;border-color:var(--accent);background:#fff;}
+.pin-input{font-family:'DM Mono',monospace!important;font-size:20px!important;letter-spacing:.2em;text-align:center;}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:var(--radius);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;border:none;transition:all .15s;white-space:nowrap;}
+.btn-primary{background:var(--accent);color:#fff;}.btn-primary:hover{background:#1e47c9;}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1.5px solid var(--border);}.btn-secondary:hover{background:var(--border);}
+.btn-danger{background:var(--red-bg);color:var(--red);border:1.5px solid #f5c0c0;}.btn-danger:hover{background:#f9d0d0;}
+.btn-success{background:var(--green-bg);color:var(--green);border:1.5px solid #b8dfc9;}.btn-success:hover{background:#d0eddb;}
+.btn-full{width:100%;justify-content:center;padding:12px;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+
+#app{display:none;min-height:100vh;}
+.app-layout{display:flex;min-height:100vh;}
+
+.sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sidebar-header{padding:20px 16px 16px;border-bottom:1px solid var(--border);}
+.sidebar-logo{width:34px;height:34px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;}
+.sidebar-logo svg{width:18px;height:18px;fill:white;}
+.sidebar-title{font-size:14px;font-weight:700;letter-spacing:-.01em;}
+.sidebar-sub{font-size:11px;color:var(--text3);}
+.sidebar-user{margin:8px 0 0;padding:8px 10px;background:var(--accent-bg);border-radius:var(--radius);font-size:12px;}
+.sidebar-user strong{display:block;color:var(--accent);font-weight:600;}
+.sidebar-user span{color:var(--text2);}
+.sidebar-nav{flex:1;padding:10px 8px;}
+.nav-section-label{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;padding:10px 8px 4px;}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;transition:all .12s;margin-bottom:1px;border:none;background:none;width:100%;text-align:left;}
+.nav-item:hover{background:var(--surface2);color:var(--text);}
+.nav-item.active{background:var(--accent-bg);color:var(--accent);font-weight:600;}
+.nav-item svg{width:15px;height:15px;flex-shrink:0;}
+.sidebar-footer{padding:12px 8px;border-top:1px solid var(--border);}
+
+.main-content{flex:1;padding:28px 32px;overflow-x:auto;}
+.page-header{margin-bottom:24px;}
+.page-title{font-size:20px;font-weight:700;letter-spacing:-.02em;}
+.page-sub{color:var(--text2);font-size:13px;margin-top:2px;}
+.page-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;}
+
+.card{background:var(--surface);border-radius:var(--radius-lg);border:1px solid var(--border);box-shadow:var(--shadow);}
+.card-pad{padding:20px;}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:14px;margin-bottom:24px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;box-shadow:var(--shadow);}
+.stat-num{font-size:30px;font-weight:700;letter-spacing:-.03em;font-family:'DM Mono',monospace;}
+.stat-label{font-size:12px;color:var(--text2);margin-top:2px;}
+
+.table-wrap{overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border);box-shadow:var(--shadow);}
+table{width:100%;border-collapse:collapse;background:var(--surface);}
+thead tr{background:var(--surface2);border-bottom:1px solid var(--border);}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
+td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:var(--surface2);}
+.td-actions{display:flex;gap:6px;}
+
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-green{background:var(--green-bg);color:var(--green);}
+.badge-yellow{background:var(--yellow-bg);color:var(--yellow);}
+.badge-red{background:var(--red-bg);color:var(--red);}
+.badge-blue{background:var(--accent-bg);color:var(--accent);}
+.badge-gray{background:var(--surface2);color:var(--text2);border:1px solid var(--border);}
+
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;}
+.field input,.field select,.field textarea{width:100%;border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:14px;font-family:'DM Sans',sans-serif;background:var(--surface2);transition:border-color .15s;}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);background:#fff;}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;}
+.modal{background:var(--surface);border-radius:var(--radius-lg);padding:28px;width:100%;max-width:480px;box-shadow:var(--shadow-lg);animation:popIn .18s ease;}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:18px;}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;}
+@keyframes popIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+
+.nota-input{width:72px;border:2px solid var(--border);border-radius:8px;padding:8px 8px;font-size:15px;font-family:'DM Mono',monospace;font-weight:700;text-align:center;background:var(--surface2);transition:border-color .15s,background .15s;}
+.nota-input:focus{outline:none;border-color:var(--accent);background:#fff;}
+.nota-roja{border-color:#f5c0c0!important;background:#fff0f0!important;color:#b52a2a!important;}
+.nota-verde{border-color:#86c99a!important;background:#edfff3!important;color:#1a6e3a!important;}
+.nota-azul{border-color:#93b8f5!important;background:#eef3ff!important;color:#1e47c9!important;}
+.nota-gris{border-color:#b0b0b0!important;background:#f0f0f0!important;color:#555!important;font-size:13px!important;}
+.nota-select{width:88px;border:2px solid var(--border);border-radius:8px;padding:7px 6px;font-size:13px;font-family:'DM Mono',monospace;font-weight:700;text-align:center;background:var(--surface2);transition:border-color .15s,background .15s;cursor:pointer;appearance:none;-webkit-appearance:none;}
+.nota-select:focus{outline:none;border-color:var(--accent);background:#fff;}
+.obs-input{width:170px;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;font-family:'DM Sans',sans-serif;background:var(--surface2);transition:border-color .15s;}
+.obs-input:focus{outline:none;border-color:var(--accent);background:#fff;}
+.nota-error{font-size:10px;color:var(--red);margin-top:3px;display:none;text-align:center;}
+.fecha-carga{font-size:10px;color:var(--text3);margin-top:2px;text-align:center;}
+
+.periodo-banner{padding:12px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;margin-bottom:20px;display:flex;align-items:center;gap:10px;}
+.periodo-banner.open{background:var(--green-bg);color:var(--green);border:1px solid #b8dfc9;}
+.periodo-banner.closed{background:var(--yellow-bg);color:var(--yellow);border:1px solid #e8d48a;}
+
+.empty{text-align:center;padding:48px 24px;color:var(--text3);}
+.empty-icon{font-size:36px;margin-bottom:10px;}
+.progress-wrap{background:var(--border);border-radius:4px;height:6px;overflow:hidden;}
+.progress-bar{height:100%;border-radius:4px;transition:width .3s;}
+
+.hidden{display:none!important;}
+.section{display:none;}
+.section.active{display:block;}
+
+.sql-code{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;font-family:'DM Mono',monospace;font-size:11px;line-height:1.7;white-space:pre-wrap;max-height:340px;overflow-y:auto;}
+
+@media(max-width:768px){
+  .sidebar{width:100%;height:auto;position:relative;}
+  .app-layout{flex-direction:column;}
+  .main-content{padding:14px 12px;}
+  .form-grid{grid-template-columns:1fr;}
+  .stat-grid{grid-template-columns:1fr 1fr;}
+  .nota-input{width:60px;font-size:14px;}
+  .obs-input{width:120px;}
+  .login-card{padding:36px 24px;border-radius:16px;}
+  .page-actions{flex-direction:column;align-items:flex-start;}
+  .table-wrap{font-size:12px;}
+  th,td{padding:8px 10px;}
+}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- CONFIG -->
+<div id="config-overlay" class="hidden">
+  <div class="config-box">
+    <h2>⚙️ Configuración de Supabase</h2>
+    <p>Pegá las credenciales de tu proyecto Supabase. Solo se hace una vez — quedan guardadas en este dispositivo.</p>
+    <label>URL del proyecto</label>
+    <input id="cfg-url" type="text" placeholder="https://xxxxxxxxxxxx.supabase.co"/>
+    <label>Anon Key (pública)</label>
+    <input id="cfg-key" type="text" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."/>
+    <div style="padding:12px;background:var(--accent-bg);border-radius:var(--radius);font-size:12px;color:var(--accent);line-height:1.7;margin-bottom:14px;">
+      <strong>¿Dónde los encontrás?</strong><br>
+      Supabase → tu proyecto → Settings → API → "Project URL" y "anon public"
+    </div>
+    <button class="btn btn-primary btn-full" onclick="guardarConfig()">Guardar y continuar →</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:8px;" onclick="mostrarSQL()">📋 Ver SQL para crear las tablas</button>
+  </div>
+</div>
+
+<!-- SQL MODAL -->
+<div class="modal-overlay hidden" id="modal-sql">
+  <div class="modal" style="max-width:640px;">
+    <h3>📋 SQL para crear las tablas en Supabase</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">
+      Copiá todo esto y ejecutalo en <strong>Supabase → SQL Editor → New query</strong>
+    </p>
+    <div class="sql-code" id="sql-display"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-sql')">Cerrar</button>
+      <button class="btn btn-primary" onclick="copiarSQL()">📋 Copiar SQL</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div id="login-screen" class="hidden">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24"><path d="M12 3L2 9v12h7v-7h6v7h7V9L12 3z"/></svg>
+    </div>
+    <div class="school">E.E.M.P.A. N° 1221</div>
+    <h1>Villa Minetti</h1>
+    <p class="subtitle">Sistema de Calificaciones</p>
+    <div class="field"><label>Email</label>
+      <input id="login-email" type="email" placeholder="usuario@eempa.edu.ar" autocomplete="email"/>
+    </div>
+    <div class="field"><label>PIN de acceso</label>
+      <input id="login-pin" type="password" maxlength="8" class="pin-input" placeholder="••••"
+        onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <div id="login-error" class="hidden" style="margin-bottom:12px;padding:10px 12px;background:var(--red-bg);color:var(--red);border-radius:var(--radius);font-size:13px;"></div>
+    <button class="btn btn-primary btn-full" onclick="doLogin()" id="btn-login">Ingresar</button>
+    <button class="btn btn-secondary btn-full" style="margin-top:8px;font-size:12px;" onclick="showConfig()">⚙ Cambiar configuración</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo"><svg viewBox="0 0 24 24"><path d="M12 3L2 9v12h7v-7h6v7h7V9L12 3z"/></svg></div>
+        <div class="sidebar-title">EEMPA</div>
+        <div class="sidebar-sub">Calificaciones</div>
+        <div class="sidebar-user">
+          <strong id="sb-name">–</strong>
+          <span id="sb-rol">–</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebar-nav"></nav>
+      <div class="sidebar-footer">
+        <button class="nav-item" style="color:var(--red);" onclick="doLogout()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          Cerrar sesión
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <!-- SECRETARIA: DASHBOARD -->
+      <div class="section" id="sec-dashboard">
+        <div class="page-header"><div class="page-title">Panel General</div><div class="page-sub">Resumen del sistema</div></div>
+        <div class="stat-grid" id="stats-grid"></div>
+        <div class="card card-pad">
+          <h3 style="font-size:14px;font-weight:700;margin-bottom:14px;">Avance de carga por curso</h3>
+          <div id="dashboard-cursos"></div>
+        </div>
+      </div>
+
+      <!-- CURSOS -->
+      <div class="section" id="sec-cursos">
+        <div class="page-header">
+          <div class="page-title">Cursos</div><div class="page-sub">Gestión de los cursos de la escuela</div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openM('modal-curso');resetCursoForm()">+ Nuevo curso</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Nombre</th><th>Alumnos</th><th>Materias</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-cursos"></tbody>
+        </table></div>
+      </div>
+
+      <!-- MATERIAS -->
+      <div class="section" id="sec-materias">
+        <div class="page-header">
+          <div class="page-title">Materias</div><div class="page-sub">Gestión de materias y asignación a cursos</div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="abrirModalMateria()">+ Nueva materia</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Materia</th><th>Cursos asignados</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-materias"></tbody>
+        </table></div>
+      </div>
+
+      <!-- ALUMNOS -->
+      <div class="section" id="sec-alumnos">
+        <div class="page-header">
+          <div class="page-title">Alumnos</div><div class="page-sub">Nómina por curso</div>
+          <div class="page-actions">
+            <select id="filter-curso-al" class="btn btn-secondary" onchange="loadAlumnos()" style="cursor:pointer;">
+              <option value="">Todos los cursos</option>
+            </select>
+            <button class="btn btn-primary" onclick="abrirModalAlumno()">+ Nuevo alumno</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Apellido y nombre</th><th>DNI</th><th>Curso</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-alumnos"></tbody>
+        </table></div>
+      </div>
+
+      <!-- DOCENTES -->
+      <div class="section" id="sec-docentes">
+        <div class="page-header">
+          <div class="page-title">Docentes</div><div class="page-sub">Alta y gestión de docentes</div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openM('modal-docente');resetDocenteForm()">+ Nuevo docente</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Apellido y nombre</th><th>Email</th><th>Materias asignadas</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-docentes"></tbody>
+        </table></div>
+      </div>
+
+      <!-- ASIGNACIONES -->
+      <div class="section" id="sec-asignaciones">
+        <div class="page-header">
+          <div class="page-title">Asignaciones</div><div class="page-sub">Docente → Materia → Curso</div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="abrirModalAsig()">+ Nueva asignación</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Docente</th><th>Curso</th><th>Materia</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-asignaciones"></tbody>
+        </table></div>
+      </div>
+
+      <!-- PERIODOS -->
+      <div class="section" id="sec-periodos">
+        <div class="page-header">
+          <div class="page-title">Períodos</div><div class="page-sub">Habilitar o cerrar períodos de carga</div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openM('modal-periodo')">+ Nuevo período</button></div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Año</th><th>Período</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody id="tbody-periodos"></tbody>
+        </table></div>
+      </div>
+
+      <!-- SEGUIMIENTO -->
+      <div class="section" id="sec-seguimiento">
+        <div class="page-header">
+          <div class="page-title">Seguimiento de carga</div><div class="page-sub">Estado por curso y materia</div>
+          <div class="page-actions">
+            <select id="filter-periodo-seg" class="btn btn-secondary" onchange="loadSeguimiento()" style="cursor:pointer;"></select>
+          </div>
+        </div>
+        <div id="seguimiento-content"></div>
+      </div>
+
+      <!-- EXPORTAR -->
+      <div class="section" id="sec-exportar">
+        <div class="page-header"><div class="page-title">Exportar planillas</div><div class="page-sub">Descargar calificaciones en Excel</div></div>
+        <div id="exportar-content"></div>
+      </div>
+
+      <!-- DOCENTE: MIS MATERIAS -->
+      <div class="section" id="doc-materias">
+        <div class="page-header"><div class="page-title">Mis materias</div><div class="page-sub">Seleccioná una para cargar calificaciones</div></div>
+        <div id="docente-periodo-banner"></div>
+        <div id="doc-materias-grid"></div>
+      </div>
+
+      <!-- DOCENTE: NOTAS -->
+      <div class="section" id="doc-notas">
+        <div class="page-header" id="doc-notas-header"></div>
+        <div id="doc-notas-content"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODALES -->
+<div class="modal-overlay hidden" id="modal-curso">
+  <div class="modal">
+    <h3 id="titulo-curso">Nuevo curso</h3>
+    <input type="hidden" id="curso-id"/>
+    <div class="field"><label>Nombre del curso</label>
+      <input id="curso-nombre" type="text" placeholder="Ej: 1° A — Turno Noche"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-curso')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveCurso()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-materia">
+  <div class="modal">
+    <h3 id="titulo-materia">Nueva materia</h3>
+    <input type="hidden" id="materia-id"/>
+    <div class="field" style="margin-bottom:14px;"><label>Nombre de la materia</label>
+      <input id="materia-nombre" type="text" placeholder="Ej: Matemática"/>
+    </div>
+    <div class="field"><label>Asignar a cursos</label>
+      <div id="materia-cursos-checks" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-materia')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveMateria()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-alumno">
+  <div class="modal">
+    <h3 id="titulo-alumno">Nuevo alumno</h3>
+    <input type="hidden" id="alumno-id"/>
+    <div class="form-grid">
+      <div class="field"><label>Apellido</label><input id="alumno-apellido" type="text"/></div>
+      <div class="field"><label>Nombre</label><input id="alumno-nombre" type="text"/></div>
+    </div>
+    <div class="form-grid" style="margin-top:12px;">
+      <div class="field"><label>DNI (opcional)</label><input id="alumno-dni" type="text"/></div>
+      <div class="field"><label>Curso</label><select id="alumno-curso"></select></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-alumno')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAlumno()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-docente">
+  <div class="modal">
+    <h3 id="titulo-docente">Nuevo docente</h3>
+    <input type="hidden" id="docente-id"/>
+    <div class="form-grid">
+      <div class="field"><label>Apellido</label><input id="docente-apellido" type="text"/></div>
+      <div class="field"><label>Nombre</label><input id="docente-nombre" type="text"/></div>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>Email</label>
+      <input id="docente-email" type="email" placeholder="docente@eempa.edu.ar"/>
+    </div>
+    <div class="field" style="margin-top:12px;"><label>PIN de acceso (4–8 dígitos)</label>
+      <input id="docente-pin" type="text" maxlength="8" placeholder="Ej: 1234"/>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-docente')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveDocente()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-asignacion">
+  <div class="modal">
+    <h3>Nueva asignación</h3>
+    <div class="field" style="margin-bottom:12px;"><label>Docente</label><select id="asig-docente"></select></div>
+    <div class="field" style="margin-bottom:12px;"><label>Curso</label><select id="asig-curso" onchange="cargarMateriasAsig()"></select></div>
+    <div class="field"><label>Materia</label><select id="asig-materia"></select></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-asignacion')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAsignacion()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-periodo">
+  <div class="modal">
+    <h3>Nuevo período</h3>
+    <div class="form-grid">
+      <div class="field"><label>Año</label><input id="periodo-anio" type="number" placeholder="2025"/></div>
+      <div class="field"><label>Tipo de período</label>
+        <select id="periodo-tipo">
+          <option value="1C">1° Cuatrimestre</option>
+          <option value="2C">2° Cuatrimestre</option>
+          <option value="REC">Calificación Parcial</option>
+          <option value="EXR">Examen Regular</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-periodo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="savePeriodo()">Crear período</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ CONSTANTES ═══
+const SB_URL_K = 'eempa_url', SB_KEY_K = 'eempa_key', SESSION_K = 'eempa_session';
+const SB_URL_DEFAULT = 'https://ogfkjyajrpozoebewage.supabase.co';
+const SB_KEY_DEFAULT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nZmtqeWFqcnBvem9lYmV3YWdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NTI0NTgsImV4cCI6MjA4OTUyODQ1OH0.23wol7z_w0nmt3b9aIYOjhFUv19Nx0S-mY8yjUXjvLo';
+let sb = null, CU = null; // sb = supabase client, CU = current user
+
+const SQL_SETUP = `-- EEMPA: Ejecutá esto en Supabase → SQL Editor
+create extension if not exists "uuid-ossp";
+
+create table if not exists public.usuarios (
+  id uuid default uuid_generate_v4() primary key,
+  nombre text not null, apellido text not null,
+  email text not null unique, pin text not null,
+  rol text not null check (rol in ('secretaria','docente')),
+  activo boolean default true, created_at timestamptz default now()
+);
+create table if not exists public.cursos (
+  id uuid default uuid_generate_v4() primary key,
+  nombre text not null, activo boolean default true,
+  created_at timestamptz default now()
+);
+create table if not exists public.materias (
+  id uuid default uuid_generate_v4() primary key,
+  nombre text not null, activo boolean default true,
+  created_at timestamptz default now()
+);
+create table if not exists public.curso_materia (
+  id uuid default uuid_generate_v4() primary key,
+  curso_id uuid references public.cursos(id) on delete cascade,
+  materia_id uuid references public.materias(id) on delete cascade,
+  unique(curso_id, materia_id)
+);
+create table if not exists public.alumnos (
+  id uuid default uuid_generate_v4() primary key,
+  nombre text not null, apellido text not null, dni text,
+  curso_id uuid references public.cursos(id) on delete set null,
+  activo boolean default true, created_at timestamptz default now()
+);
+create table if not exists public.docente_asignacion (
+  id uuid default uuid_generate_v4() primary key,
+  docente_id uuid references public.usuarios(id) on delete cascade,
+  curso_id uuid references public.cursos(id) on delete cascade,
+  materia_id uuid references public.materias(id) on delete cascade,
+  unique(docente_id, curso_id, materia_id)
+);
+create table if not exists public.periodos (
+  id uuid default uuid_generate_v4() primary key,
+  anio integer not null,
+  tipo text not null check (tipo in ('1C','2C','REC','EXR')),
+  estado text not null default 'cerrado' check (estado in ('abierto','cerrado')),
+  unique(anio, tipo)
+);
+create table if not exists public.calificaciones (
+  id uuid default uuid_generate_v4() primary key,
+  alumno_id uuid references public.alumnos(id) on delete cascade,
+  curso_id uuid references public.cursos(id) on delete cascade,
+  materia_id uuid references public.materias(id) on delete cascade,
+  docente_id uuid references public.usuarios(id) on delete set null,
+  periodo_id uuid references public.periodos(id) on delete cascade,
+  nota integer check (nota >= 1 and nota <= 10),
+  nota_especial text check (nota_especial in ('A','SC')),
+  observacion text, finalizada boolean default false,
+  fecha_carga timestamptz default now(),
+  fecha_ultima_edicion timestamptz default now(),
+  unique(alumno_id, materia_id, periodo_id)
+);
+
+-- Desactivar RLS (acceso con anon key)
+alter table public.usuarios disable row level security;
+alter table public.cursos disable row level security;
+alter table public.materias disable row level security;
+alter table public.curso_materia disable row level security;
+alter table public.alumnos disable row level security;
+alter table public.docente_asignacion disable row level security;
+alter table public.periodos disable row level security;
+alter table public.calificaciones disable row level security;
+
+-- Usuario secretaría inicial (PIN: 1234 — cambialo)
+insert into public.usuarios (nombre, apellido, email, pin, rol)
+values ('Admin','Secretaría','secretaria@eempa.edu.ar','1234','secretaria')
+on conflict (email) do nothing;`;
+
+// ═══ TOAST ═══
+function toast(msg, type='') {
+  const t = document.getElementById('toast');
+  const el = document.createElement('div');
+  el.className = 'toast-item ' + type;
+  el.textContent = msg;
+  t.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ═══ MODALES ═══
+function openM(id) { document.getElementById(id).classList.remove('hidden'); }
+function closeM(id) { document.getElementById(id).classList.add('hidden'); }
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeM(e.target.id);
+});
+
+// ═══ CONFIG ═══
+function guardarConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) { toast('Completá URL y Key', 'error'); return; }
+  localStorage.setItem(SB_URL_K, url);
+  localStorage.setItem(SB_KEY_K, key);
+  if (initSB()) {
+    document.getElementById('config-overlay').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+    toast('Conexión configurada', 'success');
+  } else { toast('Error al conectar. Verificá los datos.', 'error'); }
+}
+
+function showConfig() {
+  const url = localStorage.getItem(SB_URL_K) || '';
+  const key = localStorage.getItem(SB_KEY_K) || '';
+  document.getElementById('cfg-url').value = url;
+  document.getElementById('cfg-key').value = key;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('config-overlay').classList.remove('hidden');
+}
+
+function mostrarSQL() {
+  document.getElementById('sql-display').textContent = SQL_SETUP;
+  openM('modal-sql');
+}
+function copiarSQL() {
+  navigator.clipboard.writeText(SQL_SETUP).then(() => toast('SQL copiado al portapapeles', 'success'));
+}
+
+function initSB() {
+  try {
+    const url = localStorage.getItem(SB_URL_K) || SB_URL_DEFAULT;
+    const key = localStorage.getItem(SB_KEY_K) || SB_KEY_DEFAULT;
+    sb = supabase.createClient(url, key);
+    return true;
+  } catch(e) { return false; }
+}
+
+// ═══ LOGIN ═══
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pin   = document.getElementById('login-pin').value.trim();
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('btn-login');
+  errEl.classList.add('hidden');
+  if (!email || !pin) { showErr('Completá email y PIN'); return; }
+  btn.disabled = true; btn.textContent = 'Verificando...';
+  try {
+    const { data, error } = await sb.from('usuarios').select('*')
+      .eq('email', email).eq('pin', pin).eq('activo', true).maybeSingle();
+    if (error) throw error;
+    if (!data) { showErr('Email o PIN incorrecto'); return; }
+    CU = data;
+    localStorage.setItem(SESSION_K, JSON.stringify(data));
+    initApp();
+  } catch(e) { showErr('Error de conexión: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Ingresar'; }
+}
+function showErr(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg; el.classList.remove('hidden');
+}
+function doLogout() {
+  localStorage.removeItem(SESSION_K); CU = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('login-email').value = '';
+  document.getElementById('login-pin').value = '';
+  document.getElementById('login-error').classList.add('hidden');
+}
+
+// ═══ APP INIT ═══
+function initApp() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('sb-name').textContent = CU.apellido + ' ' + CU.nombre;
+  document.getElementById('sb-rol').textContent = CU.rol === 'secretaria' ? 'Secretaría' : 'Docente';
+  buildNav();
+  if (CU.rol === 'secretaria') { showSec('sec-dashboard'); loadDashboard(); }
+  else { showSec('doc-materias'); loadDocMaterias(); }
+}
+
+function buildNav() {
+  const nav = document.getElementById('sidebar-nav');
+  nav.innerHTML = '';
+  const items = CU.rol === 'secretaria' ? [
+    {id:'sec-dashboard', l:'Dashboard', p:'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z'},
+    {id:'sec-cursos',    l:'Cursos',    p:'M12 3L2 9v12h7v-7h6v7h7V9L12 3z'},
+    {id:'sec-materias',  l:'Materias',  p:'M4 6h16M4 10h16M4 14h16M4 18h16'},
+    {id:'sec-alumnos',   l:'Alumnos',   p:'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'},
+    {id:'sec-docentes',  l:'Docentes',  p:'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'},
+    {id:'sec-asignaciones', l:'Asignaciones', p:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2'},
+    {id:'sec-periodos',  l:'Períodos',  p:'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'},
+    {id:'sec-seguimiento', l:'Seguimiento', p:'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'},
+    {id:'sec-exportar',  l:'Exportar',  p:'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4'},
+  ] : [
+    {id:'doc-materias', l:'Mis materias', p:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2'},
+  ];
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.className = 'nav-item'; btn.id = 'nav-' + item.id;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${item.p}"/></svg>${item.l}`;
+    btn.onclick = () => { showSec(item.id); loadSec(item.id); };
+    nav.appendChild(btn);
+  });
+}
+
+function showSec(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const nb = document.getElementById('nav-' + id);
+  if (nb) nb.classList.add('active');
+}
+
+function loadSec(id) {
+  ({
+    'sec-dashboard': loadDashboard,
+    'sec-cursos': loadCursos,
+    'sec-materias': loadMaterias,
+    'sec-alumnos': loadAlumnos,
+    'sec-docentes': loadDocentes,
+    'sec-asignaciones': loadAsignaciones,
+    'sec-periodos': loadPeriodos,
+    'sec-seguimiento': loadSeguimiento,
+    'sec-exportar': loadExportar,
+    'doc-materias': loadDocMaterias,
+  }[id] || (() => {}))();
+}
+
+// ═══ HELPERS ═══
+function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+function tipoPeriodoLabel(tipo) {
+  return {'1C':'1° Cuatrimestre','2C':'2° Cuatrimestre','REC':'Calificación Parcial','EXR':'Examen Regular'}[tipo] || tipo;
+}
+// Umbral de aprobación para cuatrimestres (nota >= APROBADO_MIN)
+const APROBADO_MIN = 7;
+function getNotaClass(val) {
+  if (val === 'A' || val === 'SC') return 'nota-gris';
+  const n = parseInt(val);
+  if (isNaN(n)) return '';
+  if (n <= 3) return 'nota-roja';
+  if (n <= 6) return 'nota-verde';
+  return 'nota-azul';
+}
+
+// ═══════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════
+async function loadDashboard() {
+  const [
+    {count:nc}, {count:na}, {count:nd}, {data:pa}
+  ] = await Promise.all([
+    sb.from('cursos').select('*',{count:'exact',head:true}).eq('activo',true),
+    sb.from('alumnos').select('*',{count:'exact',head:true}).eq('activo',true),
+    sb.from('usuarios').select('*',{count:'exact',head:true}).eq('rol','docente').eq('activo',true),
+    sb.from('periodos').select('*').eq('estado','abierto').maybeSingle(),
+  ]);
+  document.getElementById('stats-grid').innerHTML = [
+    {n:nc??0, l:'Cursos activos'},
+    {n:na??0, l:'Alumnos activos'},
+    {n:nd??0, l:'Docentes'},
+    {n:pa?`${tipoPeriodoLabel(pa.tipo)} ${pa.anio}`:'—', l:'Período activo'},
+  ].map(s=>`<div class="stat-card"><div class="stat-num">${s.n}</div><div class="stat-label">${s.l}</div></div>`).join('');
+
+  const {data:cursos} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+  if (!cursos?.length || !pa) {
+    document.getElementById('dashboard-cursos').innerHTML = `<div class="empty"><p>${!pa?'No hay período abierto':'Sin cursos creados'}</p></div>`;
+    return;
+  }
+  const bars = await Promise.all(cursos.map(async c => {
+    const {count:tot} = await sb.from('docente_asignacion').select('*',{count:'exact',head:true}).eq('curso_id',c.id);
+    const {count:fin} = await sb.from('calificaciones').select('*',{count:'exact',head:true}).eq('curso_id',c.id).eq('periodo_id',pa.id).eq('finalizada',true);
+    const t = tot||0, f = fin||0, pct = t>0 ? Math.round(f/t*100) : 0;
+    const col = pct===100?'#1a7a4a':pct>0?'#8a6400':'#b52a2a';
+    return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+      <div style="width:140px;font-size:13px;font-weight:600;flex-shrink:0;">${c.nombre}</div>
+      <div style="flex:1;"><div class="progress-wrap"><div class="progress-bar" style="width:${pct}%;background:${col};"></div></div></div>
+      <div style="width:80px;font-size:12px;color:var(--text2);text-align:right;">${f}/${t} materias</div>
+      <div style="width:36px;font-size:12px;font-weight:700;color:${col};text-align:right;">${pct}%</div>
+    </div>`;
+  }));
+  document.getElementById('dashboard-cursos').innerHTML = bars.join('');
+}
+
+// ═══════════════════════════════════════
+// CURSOS
+// ═══════════════════════════════════════
+async function loadCursos() {
+  const {data:cursos} = await sb.from('cursos').select('*').order('nombre');
+  if (!cursos?.length) {
+    document.getElementById('tbody-cursos').innerHTML = '<tr><td colspan="5"><div class="empty"><p>Sin cursos. Creá el primero.</p></div></td></tr>';
+    return;
+  }
+  const rows = await Promise.all(cursos.map(async c => {
+    const [{count:nA},{count:nM}] = await Promise.all([
+      sb.from('alumnos').select('*',{count:'exact',head:true}).eq('curso_id',c.id).eq('activo',true),
+      sb.from('curso_materia').select('*',{count:'exact',head:true}).eq('curso_id',c.id),
+    ]);
+    return `<tr>
+      <td><strong>${esc(c.nombre)}</strong></td>
+      <td>${nA??0}</td><td>${nM??0}</td>
+      <td>${c.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-gray">Inactivo</span>'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-sm btn-secondary" onclick="editCurso('${c.id}','${esc(c.nombre)}')">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="toggleActivo('cursos','${c.id}',${c.activo},'Curso')">${c.activo?'Desactivar':'Activar'}</button>
+        <button class="btn btn-sm btn-danger" onclick="eliminarCurso('${c.id}','${esc(c.nombre)}')">Eliminar</button>
+      </div></td>
+    </tr>`;
+  }));
+  document.getElementById('tbody-cursos').innerHTML = rows.join('');
+}
+
+function resetCursoForm() {
+  document.getElementById('curso-id').value = '';
+  document.getElementById('curso-nombre').value = '';
+  document.getElementById('titulo-curso').textContent = 'Nuevo curso';
+}
+function editCurso(id, nombre) {
+  document.getElementById('curso-id').value = id;
+  document.getElementById('curso-nombre').value = nombre;
+  document.getElementById('titulo-curso').textContent = 'Editar curso';
+  openM('modal-curso');
+}
+async function saveCurso() {
+  const id = document.getElementById('curso-id').value;
+  const nombre = document.getElementById('curso-nombre').value.trim();
+  if (!nombre) { toast('Escribí un nombre', 'error'); return; }
+  const {error} = id
+    ? await sb.from('cursos').update({nombre}).eq('id',id)
+    : await sb.from('cursos').insert({nombre});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast(id?'Curso actualizado':'Curso creado','success');
+  closeM('modal-curso'); loadCursos();
+}
+
+async function eliminarCurso(id, nombre) {
+  if (!confirm(`¿Eliminar el curso "${nombre}"?\n\nEsto también eliminará sus alumnos, asignaciones y calificaciones. Esta acción no se puede deshacer.`)) return;
+  const {error} = await sb.from('cursos').delete().eq('id',id);
+  if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
+  toast('Curso eliminado','success'); loadCursos();
+}
+
+// ═══════════════════════════════════════
+// MATERIAS
+// ═══════════════════════════════════════
+async function loadMaterias() {
+  const [{data:mats},{data:cms},{data:cursos}] = await Promise.all([
+    sb.from('materias').select('*').order('nombre'),
+    sb.from('curso_materia').select('*'),
+    sb.from('cursos').select('id,nombre'),
+  ]);
+  if (!mats?.length) {
+    document.getElementById('tbody-materias').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin materias.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById('tbody-materias').innerHTML = mats.map(m => {
+    const cids = (cms||[]).filter(x=>x.materia_id===m.id).map(x=>x.curso_id);
+    const tags = cids.map(cid=>{const c=(cursos||[]).find(x=>x.id===cid);return c?`<span class="badge badge-blue">${esc(c.nombre)}</span>`:''}).join(' ');
+    return `<tr>
+      <td><strong>${esc(m.nombre)}</strong></td>
+      <td>${tags||'<span class="badge badge-gray">Sin asignar</span>'}</td>
+      <td>${m.activo?'<span class="badge badge-green">Activa</span>':'<span class="badge badge-gray">Inactiva</span>'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-sm btn-secondary" onclick="editMateria('${m.id}')">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="toggleActivo('materias','${m.id}',${m.activo},'Materia')">${m.activo?'Desactivar':'Activar'}</button>
+        <button class="btn btn-sm btn-danger" onclick="eliminarMateria('${m.id}','${esc(m.nombre)}')">Eliminar</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+async function abrirModalMateria(id) {
+  document.getElementById('materia-id').value = id || '';
+  document.getElementById('titulo-materia').textContent = id ? 'Editar materia' : 'Nueva materia';
+  let asignados = [];
+  if (id) {
+    const {data:m} = await sb.from('materias').select('*').eq('id',id).single();
+    document.getElementById('materia-nombre').value = m.nombre;
+    const {data:cms} = await sb.from('curso_materia').select('curso_id').eq('materia_id',id);
+    asignados = (cms||[]).map(x=>x.curso_id);
+  } else {
+    document.getElementById('materia-nombre').value = '';
+  }
+  const {data:cursos} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+  document.getElementById('materia-cursos-checks').innerHTML = (cursos||[]).map(c=>`
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);padding:6px 10px;border-radius:8px;">
+      <input type="checkbox" class="mck" value="${c.id}" ${asignados.includes(c.id)?'checked':''}/>
+      ${esc(c.nombre)}
+    </label>`).join('');
+  openM('modal-materia');
+}
+
+async function editMateria(id) { await abrirModalMateria(id); }
+
+async function saveMateria() {
+  const id = document.getElementById('materia-id').value;
+  const nombre = document.getElementById('materia-nombre').value.trim();
+  if (!nombre) { toast('Escribí un nombre', 'error'); return; }
+  const checks = [...document.querySelectorAll('.mck:checked')].map(c=>c.value);
+  let mid = id;
+  if (id) {
+    await sb.from('materias').update({nombre}).eq('id',id);
+  } else {
+    const {data} = await sb.from('materias').insert({nombre}).select().single();
+    mid = data.id;
+  }
+  await sb.from('curso_materia').delete().eq('materia_id',mid);
+  if (checks.length) await sb.from('curso_materia').insert(checks.map(cid=>({curso_id:cid,materia_id:mid})));
+  toast('Materia guardada','success'); closeM('modal-materia'); loadMaterias();
+}
+
+async function eliminarMateria(id, nombre) {
+  if (!confirm(`¿Eliminar la materia "${nombre}"?\n\nEsto también eliminará sus asignaciones y calificaciones. Esta acción no se puede deshacer.`)) return;
+  const {error} = await sb.from('materias').delete().eq('id',id);
+  if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
+  toast('Materia eliminada','success'); loadMaterias();
+}
+
+// ═══════════════════════════════════════
+// ALUMNOS
+// ═══════════════════════════════════════
+async function loadAlumnos() {
+  const filterC = document.getElementById('filter-curso-al')?.value||'';
+  const {data:cursos} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+  const sel = document.getElementById('filter-curso-al');
+  if (sel.options.length <= 1) {
+    (cursos||[]).forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.nombre; sel.appendChild(o); });
+  }
+  let q = sb.from('alumnos').select('*, cursos(nombre)').eq('activo',true).order('apellido');
+  if (filterC) q = q.eq('curso_id',filterC);
+  const {data:alumnos} = await q;
+  if (!alumnos?.length) {
+    document.getElementById('tbody-alumnos').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin alumnos.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById('tbody-alumnos').innerHTML = alumnos.map(a=>`<tr>
+    <td><strong>${esc(a.apellido)}, ${esc(a.nombre)}</strong></td>
+    <td>${a.dni||'—'}</td>
+    <td>${a.cursos?.nombre||'—'}</td>
+    <td><div class="td-actions">
+      <button class="btn btn-sm btn-secondary" onclick="editAlumno('${a.id}')">Editar</button>
+      <button class="btn btn-sm btn-danger" onclick="bajaAlumno('${a.id}')">Dar de baja</button>
+      <button class="btn btn-sm btn-danger" onclick="eliminarAlumno('${a.id}','${esc(a.apellido)}, ${esc(a.nombre)}')">Eliminar</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+async function abrirModalAlumno(id) {
+  document.getElementById('alumno-id').value = id||'';
+  document.getElementById('titulo-alumno').textContent = id?'Editar alumno':'Nuevo alumno';
+  const {data:cursos} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+  let cursActual = '';
+  if (id) {
+    const {data:a} = await sb.from('alumnos').select('*').eq('id',id).single();
+    document.getElementById('alumno-apellido').value = a.apellido;
+    document.getElementById('alumno-nombre').value   = a.nombre;
+    document.getElementById('alumno-dni').value      = a.dni||'';
+    cursActual = a.curso_id;
+  } else {
+    document.getElementById('alumno-apellido').value='';
+    document.getElementById('alumno-nombre').value='';
+    document.getElementById('alumno-dni').value='';
+  }
+  document.getElementById('alumno-curso').innerHTML = (cursos||[]).map(c=>`<option value="${c.id}" ${c.id===cursActual?'selected':''}>${esc(c.nombre)}</option>`).join('');
+  openM('modal-alumno');
+}
+async function editAlumno(id) { await abrirModalAlumno(id); }
+
+async function saveAlumno() {
+  const id=document.getElementById('alumno-id').value;
+  const apellido=document.getElementById('alumno-apellido').value.trim();
+  const nombre=document.getElementById('alumno-nombre').value.trim();
+  const dni=document.getElementById('alumno-dni').value.trim();
+  const curso_id=document.getElementById('alumno-curso').value;
+  if (!apellido||!nombre||!curso_id) { toast('Completá apellido, nombre y curso','error'); return; }
+  const {error} = id
+    ? await sb.from('alumnos').update({apellido,nombre,dni,curso_id}).eq('id',id)
+    : await sb.from('alumnos').insert({apellido,nombre,dni,curso_id});
+  if (error) { toast('Error: '+error.message,'error'); return; }
+  toast('Alumno guardado','success'); closeM('modal-alumno'); loadAlumnos();
+}
+async function bajaAlumno(id) {
+  if (!confirm('¿Dar de baja a este alumno?')) return;
+  await sb.from('alumnos').update({activo:false}).eq('id',id);
+  loadAlumnos();
+}
+async function eliminarAlumno(id, nombre) {
+  if (!confirm(`¿Eliminar definitivamente a "${nombre}"?\n\nEsto también eliminará todas sus calificaciones. Esta acción no se puede deshacer.`)) return;
+  const {error} = await sb.from('alumnos').delete().eq('id',id);
+  if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
+  toast('Alumno eliminado','success'); loadAlumnos();
+}
+
+// ═══════════════════════════════════════
+// DOCENTES
+// ═══════════════════════════════════════
+async function loadDocentes() {
+  const [{data:docs},{data:asigs}] = await Promise.all([
+    sb.from('usuarios').select('*').eq('rol','docente').order('apellido'),
+    sb.from('docente_asignacion').select('*, materias(nombre), cursos(nombre)'),
+  ]);
+  if (!docs?.length) {
+    document.getElementById('tbody-docentes').innerHTML = '<tr><td colspan="5"><div class="empty"><p>Sin docentes.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById('tbody-docentes').innerHTML = docs.map(d => {
+    const mias = (asigs||[]).filter(a=>a.docente_id===d.id);
+    const tags = mias.slice(0,3).map(a=>`<span class="badge badge-blue">${esc(a.materias?.nombre)} — ${esc(a.cursos?.nombre)}</span>`).join(' ');
+    const extra = mias.length>3?`<span class="badge badge-gray">+${mias.length-3} más</span>`:'';
+    return `<tr>
+      <td><strong>${esc(d.apellido)}, ${esc(d.nombre)}</strong></td>
+      <td style="font-size:12px;color:var(--text2);">${esc(d.email)}</td>
+      <td>${tags}${extra}${!mias.length?'<span class="badge badge-gray">Sin asignar</span>':''}</td>
+      <td>${d.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-gray">Inactivo</span>'}</td>
+      <td><div class="td-actions">
+        <button class="btn btn-sm btn-secondary" onclick="editDocente('${d.id}')">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="toggleActivo('usuarios','${d.id}',${d.activo},'Docente')">${d.activo?'Desactivar':'Activar'}</button>
+        <button class="btn btn-sm btn-danger" onclick="eliminarDocente('${d.id}','${esc(d.apellido)}, ${esc(d.nombre)}')">Eliminar</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function resetDocenteForm() {
+  ['docente-id','docente-apellido','docente-nombre','docente-email','docente-pin'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('titulo-docente').textContent = 'Nuevo docente';
+}
+async function editDocente(id) {
+  const {data:d} = await sb.from('usuarios').select('*').eq('id',id).single();
+  document.getElementById('docente-id').value=d.id;
+  document.getElementById('docente-apellido').value=d.apellido;
+  document.getElementById('docente-nombre').value=d.nombre;
+  document.getElementById('docente-email').value=d.email;
+  document.getElementById('docente-pin').value=d.pin||'';
+  document.getElementById('titulo-docente').textContent='Editar docente';
+  openM('modal-docente');
+}
+async function saveDocente() {
+  const id=document.getElementById('docente-id').value;
+  const apellido=document.getElementById('docente-apellido').value.trim();
+  const nombre=document.getElementById('docente-nombre').value.trim();
+  const email=document.getElementById('docente-email').value.trim().toLowerCase();
+  const pin=document.getElementById('docente-pin').value.trim();
+  if (!apellido||!nombre||!email||!pin) { toast('Completá todos los campos','error'); return; }
+  const {error} = id
+    ? await sb.from('usuarios').update({apellido,nombre,email,pin}).eq('id',id)
+    : await sb.from('usuarios').insert({apellido,nombre,email,pin,rol:'docente'});
+  if (error) { toast(error.code==='23505'?'Email ya en uso':error.message,'error'); return; }
+  toast('Docente guardado','success'); closeM('modal-docente'); loadDocentes();
+}
+async function eliminarDocente(id, nombre) {
+  if (!confirm(`¿Eliminar al docente "${nombre}"?\n\nEsto también eliminará sus asignaciones y calificaciones cargadas. Esta acción no se puede deshacer.`)) return;
+  const {error} = await sb.from('usuarios').delete().eq('id',id);
+  if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
+  toast('Docente eliminado','success'); loadDocentes();
+}
+
+// ═══════════════════════════════════════
+// ASIGNACIONES
+// ═══════════════════════════════════════
+async function loadAsignaciones() {
+  const {data:asigs} = await sb.from('docente_asignacion')
+    .select('*, usuarios(nombre,apellido), cursos(nombre), materias(nombre)').order('id');
+  if (!asigs?.length) {
+    document.getElementById('tbody-asignaciones').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin asignaciones.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById('tbody-asignaciones').innerHTML = asigs.map(a=>`<tr>
+    <td>${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
+    <td>${esc(a.cursos?.nombre)}</td>
+    <td>${esc(a.materias?.nombre)}</td>
+    <td><button class="btn btn-sm btn-danger" onclick="deleteAsig('${a.id}')">Eliminar</button></td>
+  </tr>`).join('');
+}
+
+async function abrirModalAsig() {
+  const [{data:docs},{data:cursos}] = await Promise.all([
+    sb.from('usuarios').select('*').eq('rol','docente').eq('activo',true).order('apellido'),
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+  ]);
+  document.getElementById('asig-docente').innerHTML = (docs||[]).map(d=>`<option value="${d.id}">${esc(d.apellido)}, ${esc(d.nombre)}</option>`).join('');
+  document.getElementById('asig-curso').innerHTML = (cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  await cargarMateriasAsig();
+  openM('modal-asignacion');
+}
+
+async function cargarMateriasAsig() {
+  const cursoId = document.getElementById('asig-curso').value;
+  if (!cursoId) return;
+  const {data:cms} = await sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',cursoId);
+  document.getElementById('asig-materia').innerHTML = (cms||[]).map(cm=>`<option value="${cm.materias.id}">${esc(cm.materias.nombre)}</option>`).join('');
+}
+
+async function saveAsignacion() {
+  const docente_id=document.getElementById('asig-docente').value;
+  const curso_id=document.getElementById('asig-curso').value;
+  const materia_id=document.getElementById('asig-materia').value;
+  if (!docente_id||!curso_id||!materia_id) { toast('Completá todos los campos','error'); return; }
+  const {error} = await sb.from('docente_asignacion').insert({docente_id,curso_id,materia_id});
+  if (error) { toast(error.code==='23505'?'Ya existe esa asignación':error.message,'error'); return; }
+  toast('Asignación creada','success'); closeM('modal-asignacion'); loadAsignaciones();
+}
+async function deleteAsig(id) {
+  if (!confirm('¿Eliminar asignación?')) return;
+  await sb.from('docente_asignacion').delete().eq('id',id);
+  loadAsignaciones();
+}
+
+// ═══════════════════════════════════════
+// PERIODOS
+// ═══════════════════════════════════════
+async function loadPeriodos() {
+  const {data:ps} = await sb.from('periodos').select('*').order('anio,tipo');
+  if (!ps?.length) {
+    document.getElementById('tbody-periodos').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin períodos.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById('tbody-periodos').innerHTML = ps.map(p=>`<tr>
+    <td>${p.anio}</td>
+    <td>${tipoPeriodoLabel(p.tipo)}</td>
+    <td>${p.estado==='abierto'?'<span class="badge badge-green">● Abierto</span>':'<span class="badge badge-gray">Cerrado</span>'}</td>
+    <td><div class="td-actions">
+      ${p.estado==='cerrado'
+        ?`<button class="btn btn-sm btn-success" onclick="togglePeriodo('${p.id}','abierto')">Abrir período</button>`
+        :`<button class="btn btn-sm btn-danger"  onclick="togglePeriodo('${p.id}','cerrado')">Cerrar período</button>`}
+      <button class="btn btn-sm btn-danger" onclick="eliminarPeriodo('${p.id}','${tipoPeriodoLabel(p.tipo)} ${p.anio}')">Eliminar</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+async function savePeriodo() {
+  const anio=parseInt(document.getElementById('periodo-anio').value);
+  const tipo=document.getElementById('periodo-tipo').value;
+  if (!anio||anio<2020) { toast('Ingresá un año válido (desde 2020)','error'); return; }
+  if (!tipo) { toast('Seleccioná el tipo de período','error'); return; }
+  const {error} = await sb.from('periodos').insert({anio,tipo,estado:'cerrado'});
+  if (error) { toast(error.code==='23505'?'Ese período ya existe para ese año':error.message,'error'); return; }
+  toast('Período creado','success'); closeM('modal-periodo'); loadPeriodos();
+}
+
+async function togglePeriodo(id, nuevoEstado) {
+  if (nuevoEstado==='abierto') await sb.from('periodos').update({estado:'cerrado'}).neq('id',id);
+  await sb.from('periodos').update({estado:nuevoEstado}).eq('id',id);
+  toast(`Período ${nuevoEstado==='abierto'?'abierto':'cerrado'}`,'success');
+  loadPeriodos();
+}
+
+async function eliminarPeriodo(id, label) {
+  if (!confirm(`¿Eliminar el período "${label}"?\n\nEsto eliminará todas las calificaciones cargadas en este período. Esta acción no se puede deshacer.`)) return;
+  const {error} = await sb.from('periodos').delete().eq('id',id);
+  if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
+  toast('Período eliminado','success'); loadPeriodos();
+}
+
+// ═══════════════════════════════════════
+// SEGUIMIENTO
+// ═══════════════════════════════════════
+async function loadSeguimiento() {
+  const sel = document.getElementById('filter-periodo-seg');
+  if (sel.options.length===0) {
+    const {data:ps} = await sb.from('periodos').select('*').order('anio,tipo');
+    (ps||[]).forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=`${tipoPeriodoLabel(p.tipo)} ${p.anio} — ${p.estado}`;sel.appendChild(o);});
+  }
+  const pid = sel.value;
+  if (!pid) { document.getElementById('seguimiento-content').innerHTML='<div class="empty"><p>Seleccioná un período</p></div>'; return; }
+  const [{data:cursos},{data:asigs},{data:cals}] = await Promise.all([
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+    sb.from('docente_asignacion').select('*, usuarios(nombre,apellido), materias(nombre)'),
+    sb.from('calificaciones').select('*').eq('periodo_id',pid),
+  ]);
+  if (!cursos?.length) { document.getElementById('seguimiento-content').innerHTML='<div class="empty"><p>Sin cursos</p></div>'; return; }
+  let html='';
+  for (const c of cursos) {
+    const ca = (asigs||[]).filter(a=>a.curso_id===c.id);
+    html += `<div class="card card-pad" style="margin-bottom:14px;">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;">${esc(c.nombre)}</h3>`;
+    if (!ca.length) { html+='<p style="font-size:13px;color:var(--text3);">Sin materias asignadas</p>'; }
+    else {
+      html+='<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:var(--surface2);">'
+        +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Materia</th>'
+        +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Docente</th>'
+        +'<th style="padding:8px 12px;font-size:11px;text-align:center;">Estado</th>'
+        +'</tr></thead><tbody>';
+      for (const a of ca) {
+        const cal=(cals||[]).find(x=>x.docente_id===a.docente_id&&x.curso_id===a.curso_id&&x.materia_id===a.materia_id);
+        const badge=!cal?'<span class="badge badge-red">Pendiente</span>'
+          :cal.finalizada?'<span class="badge badge-green">Finalizado</span>'
+          :'<span class="badge badge-yellow">En proceso</span>';
+        html+=`<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:10px 12px;font-size:13px;">${esc(a.materias?.nombre)}</td>
+          <td style="padding:10px 12px;font-size:13px;">${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
+          <td style="padding:10px 12px;text-align:center;">${badge}</td>
+        </tr>`;
+      }
+      html+='</tbody></table>';
+    }
+    html+='</div>';
+  }
+  document.getElementById('seguimiento-content').innerHTML = html;
+}
+
+// ═══════════════════════════════════════
+// EXPORTAR EXCEL
+// ═══════════════════════════════════════
+async function loadExportar() {
+  const [{data:cursos},{data:ps}] = await Promise.all([
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+    sb.from('periodos').select('*').order('anio,tipo'),
+  ]);
+  document.getElementById('exportar-content').innerHTML = `
+    <div class="card card-pad" style="max-width:480px;">
+      <div class="field" style="margin-bottom:14px;"><label>Período</label>
+        <select id="exp-periodo">${(ps||[]).map(p=>`<option value="${p.id}">${tipoPeriodoLabel(p.tipo)} ${p.anio}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin-bottom:20px;"><label>Curso</label>
+        <select id="exp-curso">
+          <option value="todos">Todos los cursos (una hoja por curso)</option>
+          ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-success" style="font-size:14px;padding:11px 20px;" onclick="exportarExcel()">
+        ⬇ Descargar planilla Excel
+      </button>
+    </div>`;
+}
+
+async function exportarExcel() {
+  const pid = document.getElementById('exp-periodo').value;
+  const cval = document.getElementById('exp-curso').value;
+  if (!pid) { toast('Seleccioná un período','error'); return; }
+  toast('Generando planilla...','');
+
+  const {data:periodo} = await sb.from('periodos').select('*').eq('id',pid).single();
+  let cursosArr;
+  if (cval==='todos') {
+    const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+    cursosArr = data||[];
+  } else {
+    const {data} = await sb.from('cursos').select('*').eq('id',cval).single();
+    cursosArr = [data];
+  }
+  const wb = XLSX.utils.book_new();
+  for (const curso of cursosArr) {
+    const [{data:cms},{data:alumnos},{data:cals}] = await Promise.all([
+      sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',curso.id),
+      sb.from('alumnos').select('*').eq('curso_id',curso.id).eq('activo',true).order('apellido'),
+      sb.from('calificaciones').select('*').eq('curso_id',curso.id).eq('periodo_id',pid),
+    ]);
+    const materias = (cms||[]).map(x=>x.materias);
+    const header = ['Apellido','Nombre','DNI',...materias.map(m=>m.nombre),'Promedio','Fecha carga'];
+    const rows = (alumnos||[]).map(a=>{
+      const notas = materias.map(m=>{
+        const c=(cals||[]).find(x=>x.alumno_id===a.id&&x.materia_id===m.id);
+        if (!c) return '';
+        return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
+      });
+      const nums = notas.filter(n=>n!==''&&n!=='A'&&n!=='SC').map(Number);
+      const prom = nums.length ? (nums.reduce((s,n)=>s+n,0)/nums.length).toFixed(1) : '';
+      const fechas = materias.map(m=>{
+        const c=(cals||[]).find(x=>x.alumno_id===a.id&&x.materia_id===m.id);
+        return c&&c.fecha_carga ? new Date(c.fecha_carga).toLocaleDateString('es-AR') : '';
+      });
+      const fechaUnica = [...new Set(fechas.filter(Boolean))].join(' / ') || '';
+      return [a.apellido,a.nombre,a.dni||'',...notas,prom,fechaUnica];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([header,...rows]);
+    ws['!cols'] = [{wch:22},{wch:16},{wch:12},...materias.map(()=>({wch:12})),{wch:10},{wch:14}];
+
+    const notaStartCol = 3;
+    const notaEndCol   = 3 + materias.length;
+    const totalCols    = notaEndCol + 2;
+
+    // Cabecera azul institucional
+    for (let c = 0; c < totalCols; c++) {
+      const cellRef = XLSX.utils.encode_cell({r:0, c});
+      if (!ws[cellRef]) continue;
+      ws[cellRef].s = {
+        font:{bold:true, color:{rgb:'FFFFFF'}},
+        fill:{fgColor:{rgb:'1E3A8A'}},
+        alignment:{horizontal:'center'}
+      };
+    }
+
+    // Colores: rojo 1-3 (aplazo), verde 4-6 (desaprobado), azul 7-10 (aprobado), gris A/SC
+    rows.forEach((row, ri) => {
+      const r = ri + 1;
+      for (let c = notaStartCol; c < notaEndCol; c++) {
+        const cellRef = XLSX.utils.encode_cell({r, c});
+        if (!ws[cellRef] || ws[cellRef].v === '') continue;
+        const val = ws[cellRef].v;
+        let rgb, fontRgb, bold=false;
+        if (val === 'A' || val === 'SC') {
+          rgb='EEEEEE'; fontRgb='555555';
+        } else {
+          const n = parseInt(val);
+          if (n <= 3)      { rgb='FFE0E0'; fontRgb='B52A2A'; bold=true; }
+          else if (n <= 6) { rgb='E0F5E8'; fontRgb='1A6E3A'; }
+          else             { rgb='E0EEFF'; fontRgb='1E47C9'; }
+        }
+        ws[cellRef].s = { fill:{fgColor:{rgb}}, font:{bold, color:{rgb:fontRgb}}, alignment:{horizontal:'center'} };
+      }
+      // Promedio
+      const promRef = XLSX.utils.encode_cell({r, c:notaEndCol});
+      if (ws[promRef] && ws[promRef].v !== '') {
+        const pv = parseFloat(ws[promRef].v);
+        let pRgb='EEEEEE', pFont='555555';
+        if (!isNaN(pv)) {
+          if (pv <= 3)      { pRgb='FFE0E0'; pFont='B52A2A'; }
+          else if (pv <= 6) { pRgb='E0F5E8'; pFont='1A6E3A'; }
+          else              { pRgb='E0EEFF'; pFont='1E47C9'; }
+        }
+        ws[promRef].s = { fill:{fgColor:{rgb:pRgb}}, font:{bold:true,color:{rgb:pFont}}, alignment:{horizontal:'center'} };
+      }
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, curso.nombre.replace(/[:\/?*\[\]]/g,'').substring(0,31));
+  }
+  XLSX.writeFile(wb, `EEMPA_${periodo.tipo}_${periodo.anio}.xlsx`);
+  toast('Planilla descargada','success');
+}
+
+// ═══════════════════════════════════════
+// PANEL DOCENTE
+// ═══════════════════════════════════════
+async function loadDocMaterias() {
+  const {data:periodo} = await sb.from('periodos').select('*').eq('estado','abierto').maybeSingle();
+  document.getElementById('docente-periodo-banner').innerHTML = periodo
+    ? `<div class="periodo-banner open">● Período abierto: ${tipoPeriodoLabel(periodo.tipo)} ${periodo.anio}</div>`
+    : `<div class="periodo-banner closed">⚠ No hay período abierto — podés ver las notas pero no editarlas</div>`;
+
+  const {data:asigs} = await sb.from('docente_asignacion')
+    .select('*, cursos(id,nombre), materias(id,nombre)').eq('docente_id',CU.id);
+  if (!asigs?.length) {
+    document.getElementById('doc-materias-grid').innerHTML = '<div class="empty"><div class="empty-icon">📋</div><p>No tenés materias asignadas.</p></div>';
+    return;
+  }
+  const byCurso = {};
+  asigs.forEach(a=>{
+    if (!byCurso[a.curso_id]) byCurso[a.curso_id]={curso:a.cursos,mats:[]};
+    byCurso[a.curso_id].mats.push(a.materias);
+  });
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">';
+  for (const cid of Object.keys(byCurso)) {
+    const {curso,mats} = byCurso[cid];
+    html += `<div class="card card-pad"><h3 style="font-size:15px;font-weight:700;margin-bottom:12px;">${esc(curso.nombre)}</h3>`;
+    for (const mat of mats) {
+      let badge = '<span class="badge badge-gray">Sin carga</span>';
+      if (periodo) {
+        const {data:s} = await sb.from('calificaciones').select('finalizada').eq('docente_id',CU.id)
+          .eq('curso_id',cid).eq('materia_id',mat.id).eq('periodo_id',periodo.id).limit(1);
+        if (s?.length) badge = s[0].finalizada?'<span class="badge badge-green">Finalizado</span>':'<span class="badge badge-yellow">En proceso</span>';
+      }
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div><div style="font-size:13px;font-weight:600;">${esc(mat.nombre)}</div>${badge}</div>
+        <button class="btn btn-sm btn-primary" onclick="abrirNotas('${cid}','${mat.id}')">Cargar notas</button>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('doc-materias-grid').innerHTML = html;
+}
+
+// Devuelve la nota numérica efectiva de una calificación, o null
+function notaEfectiva(cal) {
+  if (!cal) return null;
+  if (cal.nota_especial) return null;
+  return cal.nota != null ? cal.nota : null;
+}
+// Verdadero si el alumno aprobó (nota >= 7)
+function estaAprobado(cal) {
+  const n = notaEfectiva(cal);
+  return n != null && n >= 7;
+}
+
+async function abrirNotas(cursoId, materiaId) {
+  const [{data:curso},{data:materia},{data:alumnos},{data:periodo},{data:todosLosPeriodos}] = await Promise.all([
+    sb.from('cursos').select('nombre').eq('id',cursoId).single(),
+    sb.from('materias').select('nombre').eq('id',materiaId).single(),
+    sb.from('alumnos').select('*').eq('curso_id',cursoId).eq('activo',true).order('apellido'),
+    sb.from('periodos').select('*').eq('estado','abierto').maybeSingle(),
+    sb.from('periodos').select('*').order('anio,tipo'),
+  ]);
+
+  document.getElementById('doc-notas-header').innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <div><div class="page-title">${esc(materia.nombre)}</div><div class="page-sub">${esc(curso.nombre)}</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="showSec('doc-materias');loadDocMaterias()">← Volver</button>
+    </div>`;
+
+  if (!periodo) {
+    document.getElementById('doc-notas-content').innerHTML = '<div class="periodo-banner closed">⚠ No hay período abierto.</div>';
+    showSec('doc-notas'); return;
+  }
+
+  // Cargar calificaciones del período actual
+  let calsMap = {};
+  const {data:cals} = await sb.from('calificaciones').select('*')
+    .eq('curso_id',cursoId).eq('materia_id',materiaId).eq('periodo_id',periodo.id);
+  (cals||[]).forEach(c => { calsMap[c.alumno_id] = c; });
+
+  const finalizada = Object.values(calsMap).some(c => c.finalizada);
+
+  // Cargar calificaciones de períodos anteriores del mismo año (para filtrar y mostrar cal. final)
+  // Orden lógico: 1C → 2C → REC → EXR
+  const ordenTipo = {'1C':1,'2C':2,'REC':3,'EXR':4};
+  const periodosAnteriores = (todosLosPeriodos||[]).filter(p =>
+    p.anio === periodo.anio && ordenTipo[p.tipo] < ordenTipo[periodo.tipo]
+  );
+
+  // Mapas de calificaciones por período anterior: { periodoId: { alumnoId: cal } }
+  const calsAnteriores = {}; // periodoId -> alumnoId -> cal
+  for (const pa of periodosAnteriores) {
+    const {data:cc} = await sb.from('calificaciones').select('*')
+      .eq('curso_id',cursoId).eq('materia_id',materiaId).eq('periodo_id',pa.id);
+    calsAnteriores[pa.id] = {};
+    (cc||[]).forEach(c => { calsAnteriores[pa.id][c.alumno_id] = c; });
+  }
+
+  // Para cada alumno: determinar si ya tiene calificación final definida en período anterior
+  // y cuál es su calificación final
+  function getCalFinal(alumnoId) {
+    // Buscar en orden: 1C, 2C, REC (aprobado = final), EXR (siempre final)
+    // Recorrer períodos en orden lógico
+    const psOrdenados = periodosAnteriores.slice().sort((a,b) => ordenTipo[a.tipo]-ordenTipo[b.tipo]);
+    let calFinal = null;
+    for (const pa of psOrdenados) {
+      const cal = calsAnteriores[pa.id]?.[alumnoId];
+      if (pa.tipo === 'EXR') {
+        // EXR siempre define la final
+        const n = notaEfectiva(cal);
+        if (n != null) { calFinal = {nota: n, periodo: pa}; break; }
+      } else {
+        // 1C, 2C, REC: solo si aprobó
+        if (estaAprobado(cal)) { calFinal = {nota: notaEfectiva(cal), periodo: pa}; break; }
+      }
+    }
+    return calFinal;
+  }
+
+  // Para REC: excluir alumnos aprobados en 1C o 2C
+  // Para EXR: excluir alumnos aprobados en 1C, 2C o REC
+  function alumnoExcluido(alumnoId) {
+    if (periodo.tipo === 'REC') {
+      // Excluir si aprobó en algún cuatrimestre del mismo año
+      const cuatris = periodosAnteriores.filter(p => p.tipo==='1C' || p.tipo==='2C');
+      return cuatris.some(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
+    }
+    if (periodo.tipo === 'EXR') {
+      // Excluir si aprobó en cuatrimestre o recuperatorio
+      const prevs = periodosAnteriores.filter(p => p.tipo==='1C'||p.tipo==='2C'||p.tipo==='REC');
+      return prevs.some(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
+    }
+    return false;
+  }
+
+  function getAprobadoEnLabel(alumnoId) {
+    const cuatris = periodosAnteriores.filter(p => p.tipo==='1C'||p.tipo==='2C');
+    const aprobadoEn = cuatris.find(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
+    if (aprobadoEn) {
+      const n = notaEfectiva(calsAnteriores[aprobadoEn.id][alumnoId]);
+      return `Aprobado en ${tipoPeriodoLabel(aprobadoEn.tipo)} (${n})`;
+    }
+    if (periodo.tipo === 'EXR') {
+      const rec = periodosAnteriores.find(p => p.tipo==='REC');
+      if (rec && estaAprobado(calsAnteriores[rec.id]?.[alumnoId])) {
+        const n = notaEfectiva(calsAnteriores[rec.id][alumnoId]);
+        return `Aprobado en Calificación Parcial (${n})`;
+      }
+    }
+    return null;
+  }
+
+  // Separar alumnos: activos en este período vs ya resueltos
+  const alumnosActivos = (alumnos||[]).filter(a => !alumnoExcluido(a.id));
+  const alumnosResueltos = (alumnos||[]).filter(a => alumnoExcluido(a.id));
+
+  const editable = !finalizada;
+
+  // Mostrar columna "Cal. Final" siempre (para 1C/2C muestra nota si aprobó, para REC/EXR también)
+  const mostrarFinal = true;
+
+  let html = `<div class="periodo-banner open">● ${tipoPeriodoLabel(periodo.tipo)} ${periodo.anio}</div>`;
+
+  // Tabla principal: alumnos que deben rendir esta instancia
+  if (alumnosActivos.length > 0) {
+    html += `<div class="table-wrap" style="margin-bottom:16px;"><table>
+      <thead><tr>
+        <th>Alumno/a</th>
+        <th style="text-align:center;">${tipoPeriodoLabel(periodo.tipo)}</th>
+        <th style="text-align:center;background:#e8f5ee;color:#1a7a4a;">Cal. Final</th>
+        <th>Observación</th>
+        <th style="text-align:center;">Fecha carga</th>
+        ${editable?'<th style="text-align:center;width:44px;"></th>':''}
+      </tr></thead><tbody>`;
+
+    alumnosActivos.forEach(a => {
+      const cal = calsMap[a.id];
+      const notaVal = cal?.nota_especial ?? (cal?.nota!=null ? String(cal.nota) : '');
+      const obs = cal?.observacion ?? '';
+      const fechaCarga = cal?.fecha_carga ? new Date(cal.fecha_carga).toLocaleDateString('es-AR') : '—';
+      const dis = editable ? '' : 'disabled';
+      const nc = getNotaClass(notaVal);
+
+      // Calificación final: para EXR siempre es la nota cargada; para otros solo si aprobó
+      let calFinalHTML = '<span style="color:var(--text3);font-size:12px;">—</span>';
+      if (notaVal !== '') {
+        const notaNum = notaEfectiva(cal);
+        if (periodo.tipo === 'EXR' && notaNum != null) {
+          // EXR siempre define la final
+          const cls = notaNum >= 7 ? 'badge-green' : 'badge-red';
+          calFinalHTML = `<span class="badge ${cls}">${notaNum}</span>`;
+        } else if (estaAprobado(cal)) {
+          calFinalHTML = `<span class="badge badge-green">${notaNum}</span>`;
+        }
+      }
+
+      const opts = ['','1','2','3','4','5','6','7','8','9','10','A','SC'].map(v=>{
+        const labels = {'':'— sin nota —','A':'Ausente (A)','SC':'Sin calif. (SC)'};
+        return `<option value="${v}" ${notaVal===v?'selected':''}>${labels[v]??v}</option>`;
+      }).join('');
+
+      html+=`<tr>
+        <td style="padding:13px 14px;"><strong>${esc(a.apellido)}, ${esc(a.nombre)}</strong></td>
+        <td style="text-align:center;padding:10px 14px;">
+          <select class="nota-select ${nc}" id="n-${a.id}" ${dis}
+            onchange="autoSave('${a.id}','${cursoId}','${materiaId}','${periodo.id}');actualizarCalFinal('${a.id}','${periodo.tipo}')">
+            ${opts}
+          </select>
+        </td>
+        <td style="text-align:center;padding:10px 14px;background:#f8fdfb;" id="cf-${a.id}">${calFinalHTML}</td>
+        <td style="padding:13px 14px;">
+          <input type="text" class="obs-input" id="o-${a.id}" value="${esc(obs)}"
+            placeholder="opcional" ${dis}
+            onblur="autoSave('${a.id}','${cursoId}','${materiaId}','${periodo.id}')"/>
+        </td>
+        <td style="text-align:center;padding:13px 14px;font-size:12px;color:var(--text2);" id="f-${a.id}">${fechaCarga}</td>
+        ${editable?`<td style="text-align:center;padding:13px 14px;"><span id="s-${a.id}" style="font-size:13px;color:var(--green);font-weight:700;"></span></td>`:''}
+      </tr>`;
+    });
+    html += '</tbody></table></div>';
+  } else {
+    html += `<div class="empty"><div class="empty-icon">✓</div><p>Todos los alumnos ya tienen calificación final definida.</p></div>`;
+  }
+
+  // Tabla secundaria: alumnos ya aprobados en instancias anteriores
+  if (alumnosResueltos.length > 0) {
+    html += `<div style="margin-top:20px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">✓ Ya tienen calificación final</div>
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Alumno/a</th>
+          <th style="text-align:center;">Instancia aprobada</th>
+          <th style="text-align:center;background:#e8f5ee;color:#1a7a4a;">Cal. Final</th>
+        </tr></thead><tbody>`;
+    alumnosResueltos.forEach(a => {
+      const label = getAprobadoEnLabel(a.id);
+      const calFinal = getCalFinal(a.id);
+      const notaFinal = calFinal ? calFinal.nota : '—';
+      html += `<tr style="opacity:.7;">
+        <td style="padding:11px 14px;"><strong>${esc(a.apellido)}, ${esc(a.nombre)}</strong></td>
+        <td style="text-align:center;padding:11px 14px;"><span class="badge badge-green">${label||'Aprobado'}</span></td>
+        <td style="text-align:center;padding:11px 14px;background:#f8fdfb;"><span class="badge badge-green">${notaFinal}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  if (finalizada) {
+    html+=`<div class="periodo-banner open" style="justify-content:center;font-size:14px;margin-top:16px;">✓ Carga finalizada — contactá a secretaría para editar</div>`;
+  } else if (alumnosActivos.length > 0) {
+    const alIds = alumnosActivos.map(a=>a.id);
+    html+=`<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-secondary" onclick="guardarTodo(${JSON.stringify(alIds)},'${cursoId}','${materiaId}','${periodo.id}')">Guardar todo</button>
+      <button class="btn btn-success" onclick="finalizar('${cursoId}','${materiaId}','${periodo.id}')">✓ Finalizar carga</button>
+    </div>`;
+  }
+
+  document.getElementById('doc-notas-content').innerHTML = html;
+  showSec('doc-notas');
+}
+
+// Actualiza visualmente la columna Cal. Final al cambiar una nota
+function actualizarCalFinal(alumnoId, tipoPeriodo) {
+  const sel = document.getElementById('n-'+alumnoId);
+  if (!sel) return;
+  const val = sel.value;
+  const cfEl = document.getElementById('cf-'+alumnoId);
+  if (!cfEl) return;
+  if (val === '' || val === 'A' || val === 'SC') {
+    cfEl.innerHTML = '<span style="color:var(--text3);font-size:12px;">—</span>';
+    return;
+  }
+  const n = parseInt(val);
+  if (tipoPeriodo === 'EXR') {
+    const cls = n >= 7 ? 'badge-green' : 'badge-red';
+    cfEl.innerHTML = `<span class="badge ${cls}">${n}</span>`;
+  } else if (n >= 7) {
+    cfEl.innerHTML = `<span class="badge badge-green">${n}</span>`;
+  } else {
+    cfEl.innerHTML = '<span style="color:var(--text3);font-size:12px;">—</span>';
+  }
+}
+
+async function autoSave(alumnoId, cursoId, materiaId, periodoId) {
+  const ni  = document.getElementById('n-'+alumnoId);
+  const val = ni?.value ?? '';
+
+  // Actualizar color visual del select
+  ni.className = 'nota-select ' + getNotaClass(val);
+
+  if (val === '') return; // sin nota seleccionada, no guardar
+
+  const obs  = document.getElementById('o-'+alumnoId)?.value||'';
+  const esEspecial = val === 'A' || val === 'SC';
+  const notaNum = esEspecial ? null : parseInt(val);
+
+  const payload = {
+    alumno_id:alumnoId, curso_id:cursoId, materia_id:materiaId,
+    docente_id:CU.id, periodo_id:periodoId,
+    nota: notaNum,
+    nota_especial: esEspecial ? val : null,
+    observacion:obs, finalizada:false,
+    fecha_ultima_edicion:new Date().toISOString()
+  };
+
+  // Si es primera vez, incluir fecha_carga
+  const {data:existing} = await sb.from('calificaciones').select('id,fecha_carga')
+    .eq('alumno_id',alumnoId).eq('materia_id',materiaId).eq('periodo_id',periodoId).maybeSingle();
+  if (!existing) payload.fecha_carga = new Date().toISOString();
+
+  const {error} = await sb.from('calificaciones').upsert(payload, {onConflict:'alumno_id,materia_id,periodo_id'});
+  if (!error) {
+    // Actualizar fecha mostrada si es nuevo registro
+    if (!existing) {
+      const fi = document.getElementById('f-'+alumnoId);
+      if (fi) fi.textContent = new Date().toLocaleDateString('es-AR');
+    }
+    const si = document.getElementById('s-'+alumnoId);
+    if (si) { si.textContent='✓'; setTimeout(()=>{si.textContent='';},2000); }
+  } else {
+    toast('Error al guardar: '+error.message,'error');
+  }
+}
+
+async function guardarTodo(ids, cursoId, materiaId, periodoId) {
+  let guardados = 0;
+  for (const id of ids) {
+    const ni = document.getElementById('n-'+id);
+    if (!ni || ni.value === '') continue;
+    await autoSave(id, cursoId, materiaId, periodoId);
+    guardados++;
+  }
+  toast(guardados > 0 ? `${guardados} calificación(es) guardada(s)` : 'No hay calificaciones para guardar','success');
+}
+
+async function finalizar(cursoId, materiaId, periodoId) {
+  // Verificar que todos los alumnos tengan calificación
+  const selects = document.querySelectorAll('.nota-select');
+  const sinNota = [...selects].filter(s=>s.value==='').length;
+  if (sinNota > 0) {
+    const ok2 = confirm(`Hay ${sinNota} alumno(s) sin calificación asignada.\n¿Querés finalizar de todas formas?`);
+    if (!ok2) return;
+  }
+  const ok = confirm('¿Finalizar la carga de notas?\n\nUna vez finalizada, no podrás editar las calificaciones. Si necesitás hacer cambios, deberás comunicarte con secretaría.\n\n¿Confirmás?');
+  if (!ok) return;
+  // Guardar todo primero
+  await guardarTodo([...[...selects].map(s=>s.id.replace('n-',''))],cursoId,materiaId,periodoId);
+  const {error} = await sb.from('calificaciones').update({finalizada:true})
+    .eq('curso_id',cursoId).eq('materia_id',materiaId)
+    .eq('periodo_id',periodoId).eq('docente_id',CU.id);
+  if (error) { toast('Error al finalizar: '+error.message,'error'); return; }
+  toast('Carga finalizada exitosamente','success');
+  showSec('doc-materias'); loadDocMaterias();
+}
+
+// ═══ HELPER GENÉRICO ═══
+async function toggleActivo(tabla, id, actual, label) {
+  await sb.from(tabla).update({activo:!actual}).eq('id',id);
+  toast(`${label} ${!actual?'activado':'desactivado'}`,'success');
+  loadSec(document.querySelector('.section.active')?.id);
+}
+
+// ═══════════════════════════════════════
+// ARRANQUE
+// ═══════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  // Usar credenciales hardcodeadas si no hay guardadas
+  if (!localStorage.getItem(SB_URL_K)) localStorage.setItem(SB_URL_K, SB_URL_DEFAULT);
+  if (!localStorage.getItem(SB_KEY_K)) localStorage.setItem(SB_KEY_K, SB_KEY_DEFAULT);
+  if (!initSB()) { document.getElementById('config-overlay').classList.remove('hidden'); return; }
+  const saved = localStorage.getItem(SESSION_K);
+  if (saved) {
+    try { CU=JSON.parse(saved); initApp(); return; } catch(e){}
+  }
+  document.getElementById('login-screen').classList.remove('hidden');
+});
+</script>
+</body>
+</html>
