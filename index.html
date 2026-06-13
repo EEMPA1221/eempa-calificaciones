@@ -1412,21 +1412,39 @@ async function descargarListaDocentes() {
     return [d.apellido, d.nombre, d.email, asigStr];
   });
 
-  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N° 1221','','','EEMPA VillaMinetti 1221'],
+    ['Lista de Docentes','','',''],
+    ['','','',''],
+    header,
+    ...rows
+  ]);
   ws['!cols'] = [{wch:22},{wch:18},{wch:30},{wch:60}];
-
-  // Estilo encabezado
-  const hColors = ['1E3A8A','1E3A8A','1E3A8A','1E3A8A'];
+  ws['!merges'] = [
+    {s:{r:0,c:0},e:{r:0,c:2}},
+    {s:{r:1,c:0},e:{r:1,c:3}},
+  ];
+  // Fila 0: nombre escuela
+  const r0e = XLSX.utils.encode_cell({r:0,c:0});
+  if (ws[r0e]) ws[r0e].s = {font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
+  // Logo fila 0 col 3
+  const r0l = XLSX.utils.encode_cell({r:0,c:3});
+  if (!ws[r0l]) ws[r0l]={v:'EEMPA VillaMinetti 1221',t:'s'};
+  ws[r0l].s = {font:{bold:true,sz:9,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+  // Fila 1: subtítulo
+  const r1d = XLSX.utils.encode_cell({r:1,c:0});
+  if (ws[r1d]) ws[r1d].s = {font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
+  // Encabezado tabla fila 3
   header.forEach((_,c) => {
-    const ref = XLSX.utils.encode_cell({r:0,c});
+    const ref = XLSX.utils.encode_cell({r:3,c});
     if (!ws[ref]) ws[ref]={v:'',t:'s'};
     ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
   });
-  // Filas alternadas pastel suave
+  // Filas alternadas desde fila 4
   rows.forEach((_,ri) => {
     const bg = ri%2===0 ? 'FFFFFF' : 'F0F4FF';
     for (let c=0;c<4;c++) {
-      const ref = XLSX.utils.encode_cell({r:ri+1,c});
+      const ref = XLSX.utils.encode_cell({r:ri+4,c});
       if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}},alignment:{wrapText:true,vertical:'top'}};
     }
   });
@@ -1450,23 +1468,52 @@ async function descargarListaAlumnos() {
     const alumnosCurso = (alumnos||[]).filter(a=>a.curso_id===curso.id);
     if (!alumnosCurso.length) continue;
 
+    const ESCUELA = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N° 1221';
     const header = ['N°','Apellido','Nombre','DNI'];
     const rows = alumnosCurso.map((a,i) => [i+1, a.apellido, a.nombre, a.dni||'']);
 
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    // Fila 0: nombre escuela, Fila 1: nombre curso, Fila 2: vacía, Fila 3: encabezado tabla
+    const wsData = [
+      [ESCUELA,'','',''],
+      [curso.nombre,'','',''],
+      ['','','',''],
+      ...([header]),
+      ...rows
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [{wch:5},{wch:22},{wch:18},{wch:14}];
 
-    // Encabezado azul
+    // Fusionar celdas título escuela y curso (columnas 0-2), col 3 para logo
+    ws['!merges'] = [
+      {s:{r:0,c:0},e:{r:0,c:2}},
+      {s:{r:1,c:0},e:{r:1,c:2}},
+    ];
+    // Logo esquina superior derecha
+    const logoAl0 = XLSX.utils.encode_cell({r:0,c:3});
+    ws[logoAl0] = {v:'EEMPA\nVillaMinetti\n1221', t:'s'};
+    ws[logoAl0].s = {font:{bold:true,sz:9,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+    const logoAl1 = XLSX.utils.encode_cell({r:1,c:3});
+    ws[logoAl1] = {v:'', t:'s'};
+    ws[logoAl1].s = {fill:{fgColor:{rgb:'D6EAFF'}}};
+
+    // Estilo fila escuela
+    const r0 = XLSX.utils.encode_cell({r:0,c:0});
+    ws[r0].s = {font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
+    // Estilo fila curso
+    const r1 = XLSX.utils.encode_cell({r:1,c:0});
+    ws[r1].s = {font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
+
+    // Encabezado tabla (fila 3)
     header.forEach((_,c) => {
-      const ref = XLSX.utils.encode_cell({r:0,c});
+      const ref = XLSX.utils.encode_cell({r:3,c});
       if (!ws[ref]) ws[ref]={v:'',t:'s'};
       ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
     });
-    // Filas alternadas
+    // Filas alternadas (desde fila 4)
     rows.forEach((_,ri) => {
       const bg = ri%2===0 ? 'FFFFFF' : 'EEF4FF';
       for (let c=0;c<4;c++) {
-        const ref = XLSX.utils.encode_cell({r:ri+1,c});
+        const ref = XLSX.utils.encode_cell({r:ri+4,c});
         if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}}};
       }
     });
@@ -1589,6 +1636,12 @@ async function exportarExcel() {
     const notaStartCol = 3;
     const notaEndCol   = 3 + materias.length;
     const totalCols    = notaEndCol + 2;
+
+    // Logo esquina derecha fila 0
+    const logoExpRef = XLSX.utils.encode_cell({r:0,c:totalCols-1});
+    if (!ws[logoExpRef]) ws[logoExpRef]={v:'EEMPA VillaMinetti 1221',t:'s'};
+    else ws[logoExpRef].v = 'EEMPA VillaMinetti 1221';
+    ws[logoExpRef].s = {font:{bold:true,sz:9,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
 
     // Cabecera: azul para primeras 3 cols, pastel por materia
     for (let c = 0; c < 3; c++) {
@@ -1754,6 +1807,12 @@ async function exportarResumenCuatrimestre(cual) {
     }
 
     const totalCols = 3 + materias.length*4 + 2;
+
+    // Logo esquina derecha en fila 0 (última columna)
+    const lastCol = 3 + materias.length*4 + 1;
+    const logoRes = XLSX.utils.encode_cell({r:0,c:lastCol});
+    ws[logoRes] = {v:'EEMPA VillaMinetti 1221', t:'s'};
+    ws[logoRes].s = {font:{bold:true,sz:9,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
 
     // Estilos header fila 1 — color pastel por materia
     // Primeras 3 cols: azul institucional
