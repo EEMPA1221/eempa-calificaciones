@@ -283,6 +283,7 @@ tbody tr:hover{background:var(--surface2);}
             <select id="filter-curso-al" class="btn btn-secondary" onchange="loadAlumnos()" style="cursor:pointer;">
               <option value="">Todos los cursos</option>
             </select>
+            <button class="btn btn-success" onclick="descargarListaAlumnos()">⬇ Descargar lista</button>
             <button class="btn btn-primary" onclick="abrirModalAlumno()">+ Nuevo alumno</button>
           </div>
         </div>
@@ -296,7 +297,10 @@ tbody tr:hover{background:var(--surface2);}
       <div class="section" id="sec-docentes">
         <div class="page-header">
           <div class="page-title">Docentes</div><div class="page-sub">Alta y gestión de docentes</div>
-          <div class="page-actions"><button class="btn btn-primary" onclick="openM('modal-docente');resetDocenteForm()">+ Nuevo docente</button></div>
+          <div class="page-actions">
+            <button class="btn btn-success" onclick="descargarListaDocentes()">⬇ Descargar lista</button>
+            <button class="btn btn-primary" onclick="openM('modal-docente');resetDocenteForm()">+ Nuevo docente</button>
+          </div>
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Apellido y nombre</th><th>Email</th><th>Materias asignadas</th><th>Estado</th><th>Acciones</th></tr></thead>
@@ -394,7 +398,7 @@ tbody tr:hover{background:var(--surface2);}
 </div>
 
 <div class="modal-overlay hidden" id="modal-alumno">
-  <div class="modal">
+  <div class="modal" style="max-width:560px;">
     <h3 id="titulo-alumno">Nuevo alumno</h3>
     <input type="hidden" id="alumno-id"/>
     <div class="form-grid">
@@ -403,11 +407,47 @@ tbody tr:hover{background:var(--surface2);}
     </div>
     <div class="form-grid" style="margin-top:12px;">
       <div class="field"><label>DNI (opcional)</label><input id="alumno-dni" type="text"/></div>
-      <div class="field"><label>Curso</label><select id="alumno-curso"></select></div>
+      <div class="field"><label>Curso actual</label><select id="alumno-curso"></select></div>
+    </div>
+    <div class="form-grid" style="margin-top:12px;">
+      <div class="field"><label>Fecha de nacimiento</label><input id="alumno-fnac" type="date"/></div>
+      <div class="field"><label>Lugar de nacimiento</label><input id="alumno-lnac" type="text" placeholder="Ej: Santa Fe"/></div>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Escuela de procedencia</label>
+      <input id="alumno-escuela" type="text" placeholder="Ej: Escuela N° 123"/>
+    </div>
+    <div class="field" style="margin-top:16px;">
+      <label style="font-weight:700;">Materias previas adeudadas</label>
+      <div style="display:flex;gap:8px;margin-top:6px;margin-bottom:8px;">
+        <select id="prev-anio" style="flex:1;">
+          <option value="">— Año —</option>
+          <option value="1°">1°</option>
+          <option value="2°">2°</option>
+          <option value="3°">3°</option>
+          <option value="4°">4°</option>
+          <option value="5°">5°</option>
+          <option value="6°">6°</option>
+        </select>
+        <select id="prev-materia" style="flex:2;"><option value="">— Materia —</option></select>
+        <button class="btn btn-secondary" onclick="agregarMateriaPrevia()" style="white-space:nowrap;">+ Agregar</button>
+      </div>
+      <div id="lista-previas" style="display:flex;flex-wrap:wrap;gap:6px;min-height:32px;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeM('modal-alumno')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveAlumno()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- LEGAJO ALUMNO -->
+<div class="modal-overlay hidden" id="modal-legajo">
+  <div class="modal" style="max-width:620px;max-height:85vh;overflow-y:auto;">
+    <h3 id="legajo-titulo">Legajo del alumno</h3>
+    <div id="legajo-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeM('modal-legajo')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -905,11 +945,11 @@ async function loadAlumnos() {
     document.getElementById('tbody-alumnos').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin alumnos.</p></div></td></tr>';
     return;
   }
-  document.getElementById('tbody-alumnos').innerHTML = alumnos.map(a=>`<tr>
+  document.getElementById('tbody-alumnos').innerHTML = alumnos.map(a=>`<tr style="cursor:pointer;" onclick="verLegajo('${a.id}')">
     <td><strong>${esc(a.apellido)}, ${esc(a.nombre)}</strong></td>
     <td>${a.dni||'—'}</td>
     <td>${a.cursos?.nombre||'—'}</td>
-    <td><div class="td-actions">
+    <td onclick="event.stopPropagation()"><div class="td-actions">
       <button class="btn btn-sm btn-secondary" onclick="editAlumno('${a.id}')">Editar</button>
       <button class="btn btn-sm btn-danger" onclick="bajaAlumno('${a.id}')">Dar de baja</button>
       <button class="btn btn-sm btn-danger" onclick="eliminarAlumno('${a.id}','${esc(a.apellido)}, ${esc(a.nombre)}')">Eliminar</button>
@@ -917,26 +957,68 @@ async function loadAlumnos() {
   </tr>`).join('');
 }
 
+// Previas en memoria (array de {anio, materia_id, materia_nombre})
+let _previasTmp = [];
+
 async function abrirModalAlumno(id) {
   document.getElementById('alumno-id').value = id||'';
   document.getElementById('titulo-alumno').textContent = id?'Editar alumno':'Nuevo alumno';
-  const {data:cursos} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+  _previasTmp = [];
+  const [{data:cursos},{data:materias}] = await Promise.all([
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+    sb.from('materias').select('*').eq('activo',true).order('nombre'),
+  ]);
+  // Poblar select de materia previas
+  document.getElementById('prev-materia').innerHTML = '<option value="">— Materia —</option>'
+    + (materias||[]).map(m=>`<option value="${m.id}">${esc(m.nombre)}</option>`).join('');
   let cursActual = '';
   if (id) {
     const {data:a} = await sb.from('alumnos').select('*').eq('id',id).single();
-    document.getElementById('alumno-apellido').value = a.apellido;
-    document.getElementById('alumno-nombre').value   = a.nombre;
+    document.getElementById('alumno-apellido').value = a.apellido||'';
+    document.getElementById('alumno-nombre').value   = a.nombre||'';
     document.getElementById('alumno-dni').value      = a.dni||'';
+    document.getElementById('alumno-fnac').value     = a.fecha_nac||'';
+    document.getElementById('alumno-lnac').value     = a.lugar_nac||'';
+    document.getElementById('alumno-escuela').value  = a.escuela_procedencia||'';
     cursActual = a.curso_id;
+    // Cargar previas existentes
+    const {data:previas} = await sb.from('alumno_previas').select('*, materias(nombre)').eq('alumno_id',id);
+    _previasTmp = (previas||[]).map(p=>({id:p.id, anio:p.anio, materia_id:p.materia_id, materia_nombre:p.materias?.nombre}));
   } else {
     document.getElementById('alumno-apellido').value='';
     document.getElementById('alumno-nombre').value='';
     document.getElementById('alumno-dni').value='';
+    document.getElementById('alumno-fnac').value='';
+    document.getElementById('alumno-lnac').value='';
+    document.getElementById('alumno-escuela').value='';
   }
   document.getElementById('alumno-curso').innerHTML = (cursos||[]).map(c=>`<option value="${c.id}" ${c.id===cursActual?'selected':''}>${esc(c.nombre)}</option>`).join('');
+  renderPrevias();
   openM('modal-alumno');
 }
 async function editAlumno(id) { await abrirModalAlumno(id); }
+
+function agregarMateriaPrevia() {
+  const anio = document.getElementById('prev-anio').value;
+  const sel = document.getElementById('prev-materia');
+  const materia_id = sel.value;
+  const materia_nombre = sel.options[sel.selectedIndex]?.text;
+  if (!anio||!materia_id) { toast('Seleccioná año y materia','error'); return; }
+  if (_previasTmp.find(p=>p.anio===anio&&p.materia_id===materia_id)) { toast('Ya está agregada','error'); return; }
+  _previasTmp.push({anio, materia_id, materia_nombre});
+  renderPrevias();
+}
+
+function renderPrevias() {
+  document.getElementById('lista-previas').innerHTML = _previasTmp.length
+    ? _previasTmp.map((p,i)=>`<span style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;display:flex;align-items:center;gap:6px;">
+        <strong>${p.anio}</strong> ${esc(p.materia_nombre)}
+        <span onclick="quitarPrevia(${i})" style="cursor:pointer;color:var(--danger);font-weight:700;">×</span>
+      </span>`).join('')
+    : '<span style="font-size:12px;color:var(--text3);">Sin materias previas adeudadas</span>';
+}
+
+function quitarPrevia(i) { _previasTmp.splice(i,1); renderPrevias(); }
 
 async function saveAlumno() {
   const id=document.getElementById('alumno-id').value;
@@ -944,11 +1026,26 @@ async function saveAlumno() {
   const nombre=document.getElementById('alumno-nombre').value.trim();
   const dni=document.getElementById('alumno-dni').value.trim();
   const curso_id=document.getElementById('alumno-curso').value;
+  const fecha_nac=document.getElementById('alumno-fnac').value||null;
+  const lugar_nac=document.getElementById('alumno-lnac').value.trim()||null;
+  const escuela_procedencia=document.getElementById('alumno-escuela').value.trim()||null;
   if (!apellido||!nombre||!curso_id) { toast('Completá apellido, nombre y curso','error'); return; }
-  const {error} = id
-    ? await sb.from('alumnos').update({apellido,nombre,dni,curso_id}).eq('id',id)
-    : await sb.from('alumnos').insert({apellido,nombre,dni,curso_id});
-  if (error) { toast('Error: '+error.message,'error'); return; }
+  let alumnoId = id;
+  if (id) {
+    const {error} = await sb.from('alumnos').update({apellido,nombre,dni,curso_id,fecha_nac,lugar_nac,escuela_procedencia}).eq('id',id);
+    if (error) { toast('Error: '+error.message,'error'); return; }
+  } else {
+    const {data:nuevo,error} = await sb.from('alumnos').insert({apellido,nombre,dni,curso_id,fecha_nac,lugar_nac,escuela_procedencia}).select().single();
+    if (error) { toast('Error: '+error.message,'error'); return; }
+    alumnoId = nuevo.id;
+  }
+  // Guardar previas: borrar las existentes y reinsertar
+  await sb.from('alumno_previas').delete().eq('alumno_id',alumnoId);
+  if (_previasTmp.length) {
+    const rows = _previasTmp.map(p=>({alumno_id:alumnoId, anio:p.anio, materia_id:p.materia_id}));
+    const {error} = await sb.from('alumno_previas').insert(rows);
+    if (error) { toast('Error guardando previas: '+error.message,'error'); return; }
+  }
   toast('Alumno guardado','success'); closeM('modal-alumno'); loadAlumnos();
 }
 async function bajaAlumno(id) {
@@ -961,6 +1058,108 @@ async function eliminarAlumno(id, nombre) {
   const {error} = await sb.from('alumnos').delete().eq('id',id);
   if (error) { toast('Error al eliminar: '+error.message,'error'); return; }
   toast('Alumno eliminado','success'); loadAlumnos();
+}
+
+// ═══════════════════════════════════════
+// LEGAJO ALUMNO
+// ═══════════════════════════════════════
+async function verLegajo(id) {
+  document.getElementById('legajo-content').innerHTML = '<p style="color:var(--text3);font-size:13px;">Cargando...</p>';
+  openM('modal-legajo');
+  const [{data:a},{data:previas},{data:periodos},{data:cals}] = await Promise.all([
+    sb.from('alumnos').select('*, cursos(nombre)').eq('id',id).single(),
+    sb.from('alumno_previas').select('*, materias(nombre)').eq('alumno_id',id).order('anio'),
+    sb.from('periodos').select('*').order('anio').order('tipo'),
+    sb.from('calificaciones').select('*, materias(nombre), periodos(anio,tipo)').eq('alumno_id',id),
+  ]);
+  if (!a) { document.getElementById('legajo-content').innerHTML='<p>Error al cargar.</p>'; return; }
+  document.getElementById('legajo-titulo').textContent = `${a.apellido}, ${a.nombre}`;
+
+  // Formatear fecha
+  const fmtFecha = (f) => { if(!f) return '—'; const d=new Date(f+'T00:00:00'); return d.toLocaleDateString('es-AR'); };
+
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px;padding:14px;background:var(--surface2);border-radius:10px;font-size:13px;">
+    <div><span style="color:var(--text3);">DNI</span><br><strong>${a.dni||'—'}</strong></div>
+    <div><span style="color:var(--text3);">Curso actual</span><br><strong>${a.cursos?.nombre||'—'}</strong></div>
+    <div><span style="color:var(--text3);">Fecha de nacimiento</span><br><strong>${fmtFecha(a.fecha_nac)}</strong></div>
+    <div><span style="color:var(--text3);">Lugar de nacimiento</span><br><strong>${a.lugar_nac||'—'}</strong></div>
+    <div style="grid-column:1/-1;"><span style="color:var(--text3);">Escuela de procedencia</span><br><strong>${a.escuela_procedencia||'—'}</strong></div>
+  </div>`;
+
+  // Materias previas adeudadas
+  html += `<div style="margin-bottom:20px;">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📋 Materias previas adeudadas</div>`;
+  if (!previas?.length) {
+    html += '<p style="font-size:13px;color:var(--text3);">Sin materias previas adeudadas.</p>';
+  } else {
+    const byAnio = {};
+    previas.forEach(p=>{ if(!byAnio[p.anio]) byAnio[p.anio]=[]; byAnio[p.anio].push(p.materias?.nombre); });
+    Object.keys(byAnio).sort().forEach(anio=>{
+      html += `<div style="font-size:13px;margin-bottom:4px;"><strong>${anio} año:</strong> ${byAnio[anio].join(', ')}</div>`;
+    });
+  }
+  html += '</div>';
+
+  // Calificaciones por año
+  const anios = [...new Set((periodos||[]).map(p=>p.anio))].sort((a,b)=>b-a);
+  const tipoLabel = {'1C':'1°Cuatrim','2C':'2°Cuatrim','REC':'Recuper.','EXR':'Ex.Regular'};
+
+  if (!cals?.length) {
+    html += '<p style="font-size:13px;color:var(--text3);">Sin calificaciones registradas.</p>';
+  } else {
+    for (const anio of anios) {
+      const calsAnio = (cals||[]).filter(c=>c.periodos?.anio===anio);
+      if (!calsAnio.length) continue;
+      const materiaIds = [...new Set(calsAnio.map(c=>c.materia_id))];
+      const tipos = ['1C','2C','REC','EXR'].filter(t=>(periodos||[]).find(p=>p.anio===anio&&p.tipo===t));
+
+      html += `<div style="margin-bottom:20px;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--primary);">📅 Año ${anio}</div>
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:var(--surface2);">
+            <th style="padding:7px 10px;text-align:left;">Materia</th>
+            ${tipos.map(t=>`<th style="padding:7px 10px;text-align:center;">${tipoLabel[t]||t}</th>`).join('')}
+            <th style="padding:7px 10px;text-align:center;background:#e0f5e8;color:#1a6e3a;">Nota final</th>
+          </tr></thead><tbody>`;
+
+      const aprobada = (n) => n!==null&&n!==undefined&&n!=='A'&&n!=='SC'&&parseInt(n)>=4;
+      const getNota = (matId, tipo) => {
+        const p = (periodos||[]).find(p=>p.anio===anio&&p.tipo===tipo);
+        if (!p) return null;
+        const c = calsAnio.find(c=>c.materia_id===matId&&c.periodo_id===p.id);
+        if (!c) return null;
+        return c.nota_especial||c.nota;
+      };
+
+      for (const matId of materiaIds) {
+        const matNombre = calsAnio.find(c=>c.materia_id===matId)?.materias?.nombre||'—';
+        // Calcular nota final: última instancia aprobada
+        const n1c=getNota(matId,'1C'), nrec=getNota(matId,'REC'), nexr=getNota(matId,'EXR');
+        const n2c=getNota(matId,'2C'), nrec2=getNota(matId,'REC'), nexr2=getNota(matId,'EXR');
+        const notaFinal1 = aprobada(n1c)?n1c:aprobada(nrec)?nrec:aprobada(nexr)?nexr:null;
+        const notaFinal2 = aprobada(n2c)?n2c:aprobada(nrec2)?nrec2:aprobada(nexr2)?nexr2:null;
+        const notaFinalDisp = [notaFinal1,notaFinal2].filter(n=>n!==null);
+        const promFinal = notaFinalDisp.length ? (notaFinalDisp.reduce((s,n)=>s+parseInt(n),0)/notaFinalDisp.length).toFixed(1) : '—';
+        const colorFinal = promFinal==='—'?'color:var(--text3)':parseFloat(promFinal)>=4?'color:#1a6e3a;font-weight:700':'color:#b52a2a;font-weight:700';
+
+        const fmtNota = (n) => {
+          if(n===null||n===undefined) return '<span style="color:var(--text3);">—</span>';
+          const color = (n==='A'||n==='SC')?'color:#555':parseInt(n)>=4?'color:#1a6e3a':'color:#b52a2a';
+          return `<span style="${color};font-weight:600;">${n}</span>`;
+        };
+
+        html += `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:7px 10px;">${esc(matNombre)}</td>
+          ${tipos.map(t=>`<td style="padding:7px 10px;text-align:center;">${fmtNota(getNota(matId,t))}</td>`).join('')}
+          <td style="padding:7px 10px;text-align:center;background:#f0faf4;"><span style="${colorFinal}">${promFinal}</span></td>
+        </tr>`;
+      }
+      html += '</tbody></table></div></div>';
+    }
+  }
+
+  document.getElementById('legajo-content').innerHTML = html;
 }
 
 // ═══════════════════════════════════════
@@ -1189,6 +1388,95 @@ async function loadSeguimiento() {
     html+='</div>';
   }
   document.getElementById('seguimiento-content').innerHTML = html;
+}
+
+// ═══ DESCARGAS LISTAS ═══
+async function descargarListaDocentes() {
+  toast('Generando lista de docentes...','');
+  const [{data:docs},{data:asigs}] = await Promise.all([
+    sb.from('usuarios').select('*').eq('rol','docente').eq('activo',true).order('apellido'),
+    sb.from('docente_asignacion').select('*, cursos(nombre), materias(nombre)'),
+  ]);
+
+  const PASTEL = [
+    {bg:'FFD6D6',ft:'8B0000'},{bg:'D6EAFF',ft:'003580'},{bg:'D6FFD6',ft:'1A5C1A'},
+    {bg:'FFF3CC',ft:'7A5800'},{bg:'E8D6FF',ft:'4B0082'},{bg:'FFE8D6',ft:'7A3000'},
+  ];
+
+  const header = ['Apellido','Nombre','Email','Cursos y materias asignadas'];
+  const rows = (docs||[]).map(d => {
+    const dasigs = (asigs||[]).filter(a=>a.docente_id===d.id);
+    const asigStr = dasigs.length
+      ? dasigs.map(a=>`${a.cursos?.nombre} - ${a.materias?.nombre}`).join(' | ')
+      : 'Sin asignaciones';
+    return [d.apellido, d.nombre, d.email, asigStr];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = [{wch:22},{wch:18},{wch:30},{wch:60}];
+
+  // Estilo encabezado
+  const hColors = ['1E3A8A','1E3A8A','1E3A8A','1E3A8A'];
+  header.forEach((_,c) => {
+    const ref = XLSX.utils.encode_cell({r:0,c});
+    if (!ws[ref]) ws[ref]={v:'',t:'s'};
+    ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+  });
+  // Filas alternadas pastel suave
+  rows.forEach((_,ri) => {
+    const bg = ri%2===0 ? 'FFFFFF' : 'F0F4FF';
+    for (let c=0;c<4;c++) {
+      const ref = XLSX.utils.encode_cell({r:ri+1,c});
+      if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}},alignment:{wrapText:true,vertical:'top'}};
+    }
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Docentes');
+  XLSX.writeFile(wb, `EEMPA_Docentes_${new Date().getFullYear()}.xlsx`);
+  toast('Lista de docentes descargada','success');
+}
+
+async function descargarListaAlumnos() {
+  toast('Generando lista de alumnos...','');
+  const [{data:cursos},{data:alumnos}] = await Promise.all([
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+    sb.from('alumnos').select('*, cursos(nombre)').eq('activo',true).order('apellido'),
+  ]);
+
+  const wb = XLSX.utils.book_new();
+
+  for (const curso of (cursos||[])) {
+    const alumnosCurso = (alumnos||[]).filter(a=>a.curso_id===curso.id);
+    if (!alumnosCurso.length) continue;
+
+    const header = ['N°','Apellido','Nombre','DNI'];
+    const rows = alumnosCurso.map((a,i) => [i+1, a.apellido, a.nombre, a.dni||'']);
+
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws['!cols'] = [{wch:5},{wch:22},{wch:18},{wch:14}];
+
+    // Encabezado azul
+    header.forEach((_,c) => {
+      const ref = XLSX.utils.encode_cell({r:0,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+    });
+    // Filas alternadas
+    rows.forEach((_,ri) => {
+      const bg = ri%2===0 ? 'FFFFFF' : 'EEF4FF';
+      for (let c=0;c<4;c++) {
+        const ref = XLSX.utils.encode_cell({r:ri+1,c});
+        if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}}};
+      }
+    });
+
+    const sheetName = curso.nombre.replace(/[:\/?*\[\]]/g,'').substring(0,31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
+
+  XLSX.writeFile(wb, `EEMPA_Alumnos_${new Date().getFullYear()}.xlsx`);
+  toast('Lista de alumnos descargada','success');
 }
 
 // ═══ REABRIR CARGA ═══
