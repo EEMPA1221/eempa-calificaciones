@@ -745,8 +745,10 @@ async function loadDashboard() {
   }
   const bars = await Promise.all(cursos.map(async c => {
     const {count:tot} = await sb.from('docente_asignacion').select('*',{count:'exact',head:true}).eq('curso_id',c.id);
-    const {count:fin} = await sb.from('calificaciones').select('*',{count:'exact',head:true}).eq('curso_id',c.id).eq('periodo_id',pa.id).eq('finalizada',true);
-    const t = tot||0, f = fin||0, pct = t>0 ? Math.round(f/t*100) : 0;
+    // Contar materias DISTINTAS que tienen al menos una fila finalizada
+    const {data:finData} = await sb.from('calificaciones').select('materia_id').eq('curso_id',c.id).eq('periodo_id',pa.id).eq('finalizada',true);
+    const f = finData ? new Set(finData.map(x=>x.materia_id)).size : 0;
+    const t = tot||0, pct = t>0 ? Math.round(f/t*100) : 0;
     const col = pct===100?'#1a7a4a':pct>0?'#8a6400':'#b52a2a';
     return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
       <div style="width:140px;font-size:13px;font-weight:600;flex-shrink:0;">${c.nombre}</div>
