@@ -457,9 +457,16 @@ tbody tr:hover{background:var(--surface2);}
       <div class="field"><label>Año</label><input id="periodo-anio" type="number" placeholder="2025"/></div>
       <div class="field"><label>Tipo de período</label>
         <select id="periodo-tipo">
-          <option value="REC">Calificación Parcial</option>
-          <option value="RECUP">Recuperatorio</option>
-          <option value="EXR">Examen Regular</option>
+          <optgroup label="1° Cuatrimestre">
+            <option value="REC1">Cal. Parcial 1°Cuat</option>
+            <option value="RECUP1">Recuperatorio 1°Cuat</option>
+            <option value="EXR1">Ex. Regular 1°Cuat</option>
+          </optgroup>
+          <optgroup label="2° Cuatrimestre">
+            <option value="REC2">Cal. Parcial 2°Cuat</option>
+            <option value="RECUP2">Recuperatorio 2°Cuat</option>
+            <option value="EXR2">Ex. Regular 2°Cuat</option>
+          </optgroup>
         </select>
       </div>
     </div>
@@ -519,7 +526,7 @@ create table if not exists public.docente_asignacion (
 create table if not exists public.periodos (
   id uuid default uuid_generate_v4() primary key,
   anio integer not null,
-  tipo text not null check (tipo in ('REC','RECUP','EXR')),
+  tipo text not null check (tipo in ('REC1','RECUP1','EXR1','REC2','RECUP2','EXR2')),
   estado text not null default 'cerrado' check (estado in ('abierto','cerrado')),
   unique(anio, tipo)
 );
@@ -705,7 +712,7 @@ function loadSec(id) {
 // ═══ HELPERS ═══
 function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
 function tipoPeriodoLabel(tipo) {
-  return {'REC':'Calificación Parcial','RECUP':'Recuperatorio','EXR':'Examen Regular'}[tipo] || tipo;
+  return {'REC1':'Cal. Parcial 1°Cuat','RECUP1':'Recuperatorio 1°Cuat','EXR1':'Ex. Regular 1°Cuat','REC2':'Cal. Parcial 2°Cuat','RECUP2':'Recuperatorio 2°Cuat','EXR2':'Ex. Regular 2°Cuat'}[tipo] || tipo;
 }
 // Umbral de aprobación para cuatrimestres (nota >= APROBADO_MIN)
 const APROBADO_MIN = 7;
@@ -1301,9 +1308,10 @@ async function exportarResumenCuatrimestre(cual) {
     {bg:'D6D6FF',ft:'1A007A'}
   ];
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
-  const pBase = periodos && periodos.find(p=>p.tipo==='REC');   // Cal. Parcial
-  const prec  = periodos && periodos.find(p=>p.tipo==='RECUP'); // Recuperatorio
-  const pexr  = periodos && periodos.find(p=>p.tipo==='EXR');   // Examen Regular
+  const c = cual===1 ? '1' : '2';
+  const pBase = periodos && periodos.find(p=>p.tipo===`REC${c}`);   // Cal. Parcial
+  const prec  = periodos && periodos.find(p=>p.tipo===`RECUP${c}`); // Recuperatorio
+  const pexr  = periodos && periodos.find(p=>p.tipo===`EXR${c}`);   // Examen Regular
   let cursosArr;
   if (cval==='todos') {
     const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
@@ -1338,7 +1346,7 @@ async function exportarResumenCuatrimestre(cual) {
       const ultima = ne!==''?ne:nr!==''?nr:nb;
       return {nota:ultima, aprobada:false};
     };
-    const cuatLabel = 'Planilla de Calificaciones';
+    const cuatLabel = cual===1?'1° Cuatrimestre':'2° Cuatrimestre';
     const header1 = ['Apellido','Nombre','DNI'];
     const header2 = ['','',''];
     for (const m of materias) {
@@ -1475,7 +1483,7 @@ async function exportarResumenCuatrimestre(cual) {
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   }
   const label = cual===1?'1erCuat':'2doCuat';
-  XLSX.writeFile(wb, 'EEMPA_Resumen_'+label+'_'+anio+'.xlsx');
+  XLSX.writeFile(wb, `EEMPA_Resumen_${label}_${anio}.xlsx`);
   toast('Planilla resumen descargada','success');
 }
 
@@ -1516,8 +1524,11 @@ async function loadExportar() {
           ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
         </select>
       </div>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
-        ⬇ Descargar planilla resumen
+      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;margin-bottom:10px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
+        ⬇ Descargar resumen 1° Cuatrimestre
+      </button>
+      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(2)">
+        ⬇ Descargar resumen 2° Cuatrimestre
       </button>
     </div>
 
@@ -1886,14 +1897,12 @@ async function exportarPlanillaFinal() {
     {bg:'D6D6FF',ft:'1A007A'}
   ];
 
-  const ordenTipoExp = {'REC':1,'RECUP':2,'EXR':3};
+  const ordenTipoExp = {'REC1':1,'RECUP1':2,'EXR1':3,'REC2':4,'RECUP2':5,'EXR2':6};
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio);
   const periodosOrdenados = (periodos||[]).sort((a,b)=>(ordenTipoExp[a.tipo]||9)-(ordenTipoExp[b.tipo]||9));
   if (!periodosOrdenados.length) { toast('No hay períodos para ese año','error'); return; }
 
-  const pREC  = periodosOrdenados.find(p=>p.tipo==='REC');
-  const pRECUP = periodosOrdenados.find(p=>p.tipo==='RECUP');
-  const pEXR  = periodosOrdenados.find(p=>p.tipo==='EXR');
+  // períodos ordenados usados directamente en getNota y getCalFinal
 
   let cursosArr;
   if (cval==='todos') {
@@ -1915,23 +1924,25 @@ async function exportarPlanillaFinal() {
     ]);
     const materias = (cms||[]).map(x=>x.materias).sort((a,b)=>a.nombre.localeCompare(b.nombre));
 
-    const getNota = (alumnoId, materiaId, periodo) => {
-      if (!periodo) return '';
-      const c = (cals||[]).find(x=>x.alumno_id===alumnoId&&x.materia_id===materiaId&&x.periodo_id===periodo.id);
+    const getNota = (alumnoId, materiaId, periodoId) => {
+      if (!periodoId) return '';
+      const c = (cals||[]).find(x=>x.alumno_id===alumnoId&&x.materia_id===materiaId&&x.periodo_id===periodoId);
       if (!c) return '';
       return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
     };
 
-    // Calificación final: aprobado (>=7) en REC o RECUP → promociona; EXR siempre es final
+    // Calificación final: recorre períodos ordenados; EXR es siempre final; REC/RECUP solo si >= 7
     const getCalFinal = (alumnoId, materiaId) => {
-      const nREC = getNota(alumnoId, materiaId, pREC);
-      const nRECUP = getNota(alumnoId, materiaId, pRECUP);
-      const nEXR = getNota(alumnoId, materiaId, pEXR);
-      if (pEXR && nEXR !== '') return nEXR;
-      if (pRECUP && !isNaN(parseInt(nRECUP)) && parseInt(nRECUP) >= 7) return nRECUP;
-      if (pREC && !isNaN(parseInt(nREC)) && parseInt(nREC) >= 7) return nREC;
-      // Última nota disponible
-      return nEXR !== '' ? nEXR : nRECUP !== '' ? nRECUP : nREC;
+      let ultima = '';
+      for (const p of periodosOrdenados) {
+        const n = getNota(alumnoId, materiaId, p.id);
+        if (n !== '') ultima = n;
+        if (p.tipo.startsWith('EXR') && n !== '') return n;
+        if ((p.tipo.startsWith('REC') && !p.tipo.startsWith('RECUP')) || p.tipo.startsWith('RECUP')) {
+          if (!isNaN(parseInt(n)) && parseInt(n) >= 7) return n;
+        }
+      }
+      return ultima;
     };
 
     // Sub-columnas por materia: Cal.Parcial | Recuperatorio | Ex.Regular | NOTA FINAL
@@ -1954,9 +1965,10 @@ async function exportarPlanillaFinal() {
       const notasAprobadas = [];
       const adeudadas = [];
       for (const m of materias) {
-        const nREC   = getNota(a.id, m.id, pREC);
-        const nRECUP = getNota(a.id, m.id, pRECUP);
-        const nEXR   = getNota(a.id, m.id, pEXR);
+        // notas por instancia — usamos getCalFinal para la nota final
+        const nREC   = '';  // no usado directamente
+        const nRECUP = '';
+        const nEXR   = '';
         const calFinal = getCalFinal(a.id, m.id);
         row.push(nREC, nRECUP, nEXR, calFinal);
         const n = parseInt(calFinal);
@@ -2178,7 +2190,7 @@ async function exportarPlanillaFinal() {
   toast('Generando planilla final...','');
 
   // Períodos del año ordenados: REC → RECUP → EXR
-  const ordenTipoExp = {'REC':1,'RECUP':2,'EXR':3};
+  const ordenTipoExp = {'REC1':1,'RECUP1':2,'EXR1':3,'REC2':4,'RECUP2':5,'EXR2':6};
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
   const periodosOrdenados = (periodos||[]).sort((a,b)=>(ordenTipoExp[a.tipo]||9)-(ordenTipoExp[b.tipo]||9));
 
@@ -2194,12 +2206,12 @@ async function exportarPlanillaFinal() {
   }
 
   // Etiquetas cortas para sub-columnas de instancias
-  const INST_LABELS = {'REC':'Cal. Parcial','RECUP':'Recuperatorio','EXR':'Ex. Regular'};
+  const INST_LABELS = {'REC1':'Cal. Parcial','RECUP1':'Recuperatorio','EXR1':'Ex. Regular','REC2':'Cal. Parcial','RECUP2':'Recuperatorio','EXR2':'Ex. Regular'};
 
   // Colores de fondo por instancia (cabecera de grupo)
-  const INST_COLORS = {'REC':'1E3A8A','RECUP':'7C3AED','EXR':'B45309'};
-  const INST_SUBCOL_COLORS = {'REC':'DBEAFE','RECUP':'EDE9FE','EXR':'FEF3C7'};
-  const INST_FONT_COLORS = {'REC':'1E3A8A','RECUP':'5B21B6','EXR':'92400E'};
+  const INST_COLORS = {'REC1':'1E3A8A','RECUP1':'7C3AED','EXR1':'B45309','REC2':'1E3A8A','RECUP2':'7C3AED','EXR2':'B45309'};
+  const INST_SUBCOL_COLORS = {'REC1':'DBEAFE','RECUP1':'EDE9FE','EXR1':'FEF3C7','REC2':'DBEAFE','RECUP2':'EDE9FE','EXR2':'FEF3C7'};
+  const INST_FONT_COLORS = {'REC1':'1E3A8A','RECUP1':'5B21B6','EXR1':'92400E','REC2':'1E3A8A','RECUP2':'5B21B6','EXR2':'92400E'};
 
   const wb = XLSX.utils.book_new();
 
@@ -2532,7 +2544,7 @@ async function abrirNotas(cursoId, materiaId) {
 
   // Cargar calificaciones de períodos anteriores del mismo año (para filtrar y mostrar cal. final)
   // Orden lógico: 1C → 2C → REC → EXR
-  const ordenTipo = {'REC':1,'RECUP':2,'EXR':3};
+  const ordenTipo = {'REC1':1,'RECUP1':2,'EXR1':3,'REC2':4,'RECUP2':5,'EXR2':6};
   const periodosAnteriores = (todosLosPeriodos||[]).filter(p =>
     p.anio === periodo.anio && ordenTipo[p.tipo] < ordenTipo[periodo.tipo]
   );
