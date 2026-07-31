@@ -1369,10 +1369,12 @@ async function exportarResumenCuatrimestre(cual) {
         row.push(nb, nr, ne, fin.nota);
         const nFinal = parseInt(fin.nota);
         if (!isNaN(nFinal) && nFinal >= 7) notasFinales.push(nFinal);
-        else if (fin.nota==='' || (!isNaN(nFinal) && nFinal < 7)) adeudadas.push(m.nombre);
+        else if (fin.nota === 'A' || fin.nota === 'SC') adeudadas.push(m.nombre + ' (A)');
+        else if (!isNaN(nFinal) && nFinal < 7) adeudadas.push(m.nombre);
+        // si fin.nota === '' no hay nota cargada, no se cuenta como adeudada
       }
       const prom = notasFinales.length?(notasFinales.reduce((s,n)=>s+n,0)/notasFinales.length).toFixed(1):'';
-      row.push(prom, adeudadas.length > 0 ? adeudadas.join(' / ') : 'Ninguna');
+      row.push(prom, adeudadas.join(' / '));
       rows.push(row);
     }
     const totalCols = 3 + materias.length*4 + 2;
