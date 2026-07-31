@@ -1181,6 +1181,26 @@ async function loadExportar() {
   const anios = [...new Set((ps||[]).map(p=>p.anio))].sort((a,b)=>b-a);
   document.getElementById('exportar-content').innerHTML = `
     <div style="display:flex;flex-direction:column;gap:16px;max-width:520px;">
+
+      <!-- PLANILLA POR PERÍODO -->
+      <div class="card card-pad">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px;">📋 Planilla por período</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Notas de un período específico · Una materia por columna</div>
+        <div class="field" style="margin-bottom:14px;"><label>Período</label>
+          <select id="exp-periodo">${(ps||[]).map(p=>`<option value="${p.id}">${tipoPeriodoLabel(p.tipo)} ${p.anio}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin-bottom:20px;"><label>Curso</label>
+          <select id="exp-curso">
+            <option value="todos">Todos los cursos (una hoja por curso)</option>
+            ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-success" style="font-size:14px;padding:11px 20px;" onclick="exportarExcel()">
+          ⬇ Descargar planilla
+        </button>
+      </div>
+
+      <!-- PLANILLA FINAL COMPLETA -->
       <div class="card card-pad" style="border:2px solid var(--accent);">
         <div style="font-size:14px;font-weight:700;margin-bottom:4px;">📊 Planilla de calificaciones</div>
         <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">
@@ -1199,6 +1219,19 @@ async function loadExportar() {
           ⬇ Descargar planilla
         </button>
       </div>
+
+      <!-- PLANILLA SUPERVISIÓN -->
+      <div class="card card-pad">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px;">🔍 Planilla de supervisión</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">Estado de carga por docente, materia y curso</div>
+        <div class="field" style="margin-bottom:20px;"><label>Período</label>
+          <select id="exp-periodo-sup">${(ps||[]).map(p=>`<option value="${p.id}">${tipoPeriodoLabel(p.tipo)} ${p.anio}</option>`).join('')}</select>
+        </div>
+        <button class="btn btn-secondary" style="font-size:14px;padding:11px 20px;" onclick="exportarSupervision()">
+          ⬇ Descargar planilla
+        </button>
+      </div>
+
     </div>`;
 }
 
@@ -1248,6 +1281,61 @@ async function exportarExcel() {
   }
   XLSX.writeFile(wb, `EEMPA_${periodo.tipo}_${periodo.anio}.xlsx`);
   toast('Planilla descargada','success');
+}
+
+// ─── PLANILLA SUPERVISIÓN: estado de carga por docente/materia/curso ────────
+async function exportarSupervision() {
+  const pid = document.getElementById('exp-periodo-sup').value;
+  if (!pid) { toast('Seleccioná un período','error'); return; }
+  toast('Generando planilla de supervisión...','');
+
+  const [{data:periodo},{data:cursos},{data:asigs},{data:cals}] = await Promise.all([
+    sb.from('periodos').select('*').eq('id',pid).single(),
+    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
+    sb.from('docente_asignacion').select('*, usuarios(nombre,apellido), materias(nombre)'),
+    sb.from('calificaciones').select('*').eq('periodo_id',pid),
+  ]);
+
+  const rows = [];
+  for (const curso of (cursos||[])) {
+    const asigsCurso = (asigs||[]).filter(a=>a.curso_id===curso.id);
+    for (const a of asigsCurso) {
+      const cal = (cals||[]).find(x=>x.docente_id===a.docente_id&&x.curso_id===a.curso_id&&x.materia_id===a.materia_id);
+      const estado = !cal ? 'Pendiente' : cal.finalizada ? 'Finalizado' : 'En proceso';
+      rows.push([
+        curso.nombre,
+        a.materias?.nombre||'',
+        `${a.usuarios?.apellido||''}, ${a.usuarios?.nombre||''}`,
+        estado,
+      ]);
+    }
+  }
+
+  const header = ['Curso','Materia','Docente','Estado de carga'];
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = [{wch:20},{wch:25},{wch:28},{wch:16}];
+
+  // Estilos cabecera
+  header.forEach((_,c)=>{
+    const ref=XLSX.utils.encode_cell({r:0,c});
+    if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+  });
+  // Estilos estado
+  rows.forEach((row,ri)=>{
+    const ref=XLSX.utils.encode_cell({r:ri+1,c:3});
+    if(!ws[ref]) return;
+    const v=ws[ref].v;
+    ws[ref].s = v==='Finalizado'
+      ? {fill:{fgColor:{rgb:'D1FAE5'}},font:{bold:true,color:{rgb:'1A6E3A'}},alignment:{horizontal:'center'}}
+      : v==='En proceso'
+      ? {fill:{fgColor:{rgb:'FEF9E6'}},font:{color:{rgb:'8a6400'}},alignment:{horizontal:'center'}}
+      : {fill:{fgColor:{rgb:'FFE0E0'}},font:{bold:true,color:{rgb:'B52A2A'}},alignment:{horizontal:'center'}};
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Supervisión');
+  XLSX.writeFile(wb, `EEMPA_Supervision_${tipoPeriodoLabel(periodo.tipo)}_${periodo.anio}.xlsx`);
+  toast('Planilla de supervisión descargada','success');
 }
 
 // ─── PLANILLA FINAL: por materia con instancias como sub-columnas ───────────
