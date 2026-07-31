@@ -1301,9 +1301,9 @@ async function exportarResumenCuatrimestre(cual) {
     {bg:'D6D6FF',ft:'1A007A'}
   ];
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
-  const pBase = periodos && periodos.find(p=>p.tipo===(cual===1?'1C':'2C'));
-  const prec  = periodos && periodos.find(p=>p.tipo==='REC');
-  const pexr  = periodos && periodos.find(p=>p.tipo==='EXR');
+  const pBase = periodos && periodos.find(p=>p.tipo==='REC');   // Cal. Parcial
+  const prec  = periodos && periodos.find(p=>p.tipo==='RECUP'); // Recuperatorio
+  const pexr  = periodos && periodos.find(p=>p.tipo==='EXR');   // Examen Regular
   let cursosArr;
   if (cval==='todos') {
     const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
@@ -1327,7 +1327,7 @@ async function exportarResumenCuatrimestre(cual) {
       if (!c) return '';
       return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
     };
-    const aprobada = (n) => n!==''&&n!=='A'&&n!=='SC'&&parseInt(n)>=4;
+    const aprobada = (n) => n!==''&&n!=='A'&&n!=='SC'&&parseInt(n)>=7;
     const getNotaFinal = (alumnoId, materiaId) => {
       const nb = getNota(alumnoId, materiaId, pBase&&pBase.id);
       const nr = getNota(alumnoId, materiaId, prec&&prec.id);
@@ -1338,12 +1338,12 @@ async function exportarResumenCuatrimestre(cual) {
       const ultima = ne!==''?ne:nr!==''?nr:nb;
       return {nota:ultima, aprobada:false};
     };
-    const cuatLabel = cual===1?'1\u00b0 Cuatrimestre':'2\u00b0 Cuatrimestre';
+    const cuatLabel = 'Planilla de Calificaciones';
     const header1 = ['Apellido','Nombre','DNI'];
     const header2 = ['','',''];
     for (const m of materias) {
       header1.push(m.nombre,'','','');
-      header2.push(cual===1?'1\u00b0Cuatrim':'2\u00b0Cuatrim','Recuper.','Ex.Regular','NOTA FINAL');
+      header2.push('Cal. Parcial','Recuperatorio','Ex. Regular','NOTA FINAL');
     }
     header1.push('','');
     header2.push('Promedio','Materias Adeudadas');
@@ -1358,11 +1358,12 @@ async function exportarResumenCuatrimestre(cual) {
         const ne = getNota(a.id, m.id, pexr&&pexr.id);
         const fin = getNotaFinal(a.id, m.id);
         row.push(nb, nr, ne, fin.nota);
-        if (fin.aprobada && fin.nota!=='') notasFinales.push(parseFloat(fin.nota));
-        else if (!fin.aprobada && (nb!==''||nr!==''||ne!=='')) adeudadas.push(m.nombre);
+        const nFinal = parseInt(fin.nota);
+        if (!isNaN(nFinal) && nFinal >= 7) notasFinales.push(nFinal);
+        else if (fin.nota==='' || (!isNaN(nFinal) && nFinal < 7)) adeudadas.push(m.nombre);
       }
       const prom = notasFinales.length?(notasFinales.reduce((s,n)=>s+n,0)/notasFinales.length).toFixed(1):'';
-      row.push(prom, adeudadas.join(', '));
+      row.push(prom, adeudadas.length > 0 ? adeudadas.join(' / ') : 'Ninguna');
       rows.push(row);
     }
     const totalCols = 3 + materias.length*4 + 2;
@@ -1500,6 +1501,23 @@ async function loadExportar() {
       </div>
       <button class="btn btn-success" style="font-size:14px;padding:11px 20px;" onclick="exportarExcel()">
         ⬇ Descargar planilla Excel
+      </button>
+    </div>
+
+    <div class="card card-pad" style="max-width:480px;margin-top:16px;">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">📊 Planilla resumen anual</h3>
+      <p style="font-size:13px;color:var(--text3);margin-bottom:14px;">Incluye todos los períodos, nota final, promedio y materias adeudadas (nota final menor a 7).</p>
+      <div class="field" style="margin-bottom:14px;"><label>Año</label>
+        <select id="exp-anio">${[...new Set((ps||[]).map(p=>p.anio))].sort((a,b)=>b-a).map(a=>`<option value="${a}">${a}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin-bottom:20px;"><label>Curso</label>
+        <select id="exp-curso-resumen">
+          <option value="todos">Todos los cursos (una hoja por curso)</option>
+          ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
+        ⬇ Descargar planilla resumen
       </button>
     </div>
 
