@@ -1322,12 +1322,12 @@ async function exportarResumenCuatrimestre(cual) {
     cursosArr = [data];
   }
   const wb = XLSX.utils.book_new();
-  const periodoIds = [pBase,prec,pexr].filter(Boolean).map(p=>p.id);
+  const todosLosPeriodoIds = (periodos||[]).map(p=>p.id);
   for (const curso of cursosArr) {
     const [{data:cms},{data:alumnos},{data:cals}] = await Promise.all([
       sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',curso.id),
       sb.from('alumnos').select('*').eq('curso_id',curso.id).eq('activo',true).order('apellido'),
-      sb.from('calificaciones').select('*').eq('curso_id',curso.id).in('periodo_id',periodoIds),
+      sb.from('calificaciones').select('*').eq('curso_id',curso.id).in('periodo_id',todosLosPeriodoIds),
     ]);
     const materias = (cms||[]).map(x=>x.materias);
     const getNota = (alumnoId, materiaId, periodoId) => {
