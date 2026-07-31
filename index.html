@@ -1309,9 +1309,10 @@ async function exportarResumenCuatrimestre(cual) {
   ];
   const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
   const c = cual===1 ? '1' : '2';
-  const pBase = periodos && periodos.find(p=>p.tipo===`REC${c}`);   // Cal. Parcial
-  const prec  = periodos && periodos.find(p=>p.tipo===`RECUP${c}`); // Recuperatorio
-  const pexr  = periodos && periodos.find(p=>p.tipo===`EXR${c}`);   // Examen Regular
+  // Busca tipo nuevo (REC1/REC2) con fallback al tipo viejo (REC) solo para el 1° cuatrimestre
+  const pBase = periodos && (periodos.find(p=>p.tipo===`REC${c}`) || (cual===1 && periodos.find(p=>p.tipo==='REC')));
+  const prec  = periodos && (periodos.find(p=>p.tipo===`RECUP${c}`) || (cual===1 && periodos.find(p=>p.tipo==='RECUP')));
+  const pexr  = periodos && (periodos.find(p=>p.tipo===`EXR${c}`) || (cual===1 && periodos.find(p=>p.tipo==='EXR')));
   let cursosArr;
   if (cval==='todos') {
     const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
