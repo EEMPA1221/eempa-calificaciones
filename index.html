@@ -283,7 +283,6 @@ tbody tr:hover{background:var(--surface2);}
             <select id="filter-curso-al" class="btn btn-secondary" onchange="loadAlumnos()" style="cursor:pointer;">
               <option value="">Todos los cursos</option>
             </select>
-            <button class="btn btn-success" onclick="descargarListaAlumnos()">⬇ Descargar lista</button>
             <button class="btn btn-primary" onclick="abrirModalAlumno()">+ Nuevo alumno</button>
           </div>
         </div>
@@ -297,10 +296,7 @@ tbody tr:hover{background:var(--surface2);}
       <div class="section" id="sec-docentes">
         <div class="page-header">
           <div class="page-title">Docentes</div><div class="page-sub">Alta y gestión de docentes</div>
-          <div class="page-actions">
-            <button class="btn btn-success" onclick="descargarListaDocentes()">⬇ Descargar lista</button>
-            <button class="btn btn-primary" onclick="openM('modal-docente');resetDocenteForm()">+ Nuevo docente</button>
-          </div>
+          <div class="page-actions"><button class="btn btn-primary" onclick="openM('modal-docente');resetDocenteForm()">+ Nuevo docente</button></div>
         </div>
         <div class="table-wrap"><table>
           <thead><tr><th>Apellido y nombre</th><th>Email</th><th>Materias asignadas</th><th>Estado</th><th>Acciones</th></tr></thead>
@@ -457,9 +453,8 @@ tbody tr:hover{background:var(--surface2);}
       <div class="field"><label>Año</label><input id="periodo-anio" type="number" placeholder="2025"/></div>
       <div class="field"><label>Tipo de período</label>
         <select id="periodo-tipo">
-          <option value="1C">1° Cuatrimestre</option>
-          <option value="2C">2° Cuatrimestre</option>
-          <option value="REC">Recuperatorio</option>
+          <option value="REC">Calificación Parcial</option>
+          <option value="RECUP">Recuperatorio</option>
           <option value="EXR">Examen Regular</option>
         </select>
       </div>
@@ -520,7 +515,7 @@ create table if not exists public.docente_asignacion (
 create table if not exists public.periodos (
   id uuid default uuid_generate_v4() primary key,
   anio integer not null,
-  tipo text not null check (tipo in ('1C','2C','REC','EXR')),
+  tipo text not null check (tipo in ('REC','RECUP','EXR')),
   estado text not null default 'cerrado' check (estado in ('abierto','cerrado')),
   unique(anio, tipo)
 );
@@ -706,7 +701,7 @@ function loadSec(id) {
 // ═══ HELPERS ═══
 function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
 function tipoPeriodoLabel(tipo) {
-  return {'1C':'1° Cuatrimestre','2C':'2° Cuatrimestre','REC':'Recuperatorio','EXR':'Examen Regular'}[tipo] || tipo;
+  return {'REC':'Calificación Parcial','RECUP':'Recuperatorio','EXR':'Examen Regular'}[tipo] || tipo;
 }
 // Umbral de aprobación para cuatrimestres (nota >= APROBADO_MIN)
 const APROBADO_MIN = 7;
@@ -745,10 +740,8 @@ async function loadDashboard() {
   }
   const bars = await Promise.all(cursos.map(async c => {
     const {count:tot} = await sb.from('docente_asignacion').select('*',{count:'exact',head:true}).eq('curso_id',c.id);
-    // Contar materias DISTINTAS que tienen al menos una fila finalizada
-    const {data:finData} = await sb.from('calificaciones').select('materia_id').eq('curso_id',c.id).eq('periodo_id',pa.id).eq('finalizada',true);
-    const f = finData ? new Set(finData.map(x=>x.materia_id)).size : 0;
-    const t = tot||0, pct = t>0 ? Math.round(f/t*100) : 0;
+    const {count:fin} = await sb.from('calificaciones').select('*',{count:'exact',head:true}).eq('curso_id',c.id).eq('periodo_id',pa.id).eq('finalizada',true);
+    const t = tot||0, f = fin||0, pct = t>0 ? Math.round(f/t*100) : 0;
     const col = pct===100?'#1a7a4a':pct>0?'#8a6400':'#b52a2a';
     return `<div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
       <div style="width:140px;font-size:13px;font-weight:600;flex-shrink:0;">${c.nombre}</div>
@@ -1038,12 +1031,11 @@ async function eliminarDocente(id, nombre) {
 // ═══════════════════════════════════════
 async function loadAsignaciones() {
   const {data:asigs} = await sb.from('docente_asignacion')
-    .select('*, usuarios(nombre,apellido), cursos(nombre), materias(nombre)');
+    .select('*, usuarios(nombre,apellido), cursos(nombre), materias(nombre)').order('id');
   if (!asigs?.length) {
     document.getElementById('tbody-asignaciones').innerHTML = '<tr><td colspan="4"><div class="empty"><p>Sin asignaciones.</p></div></td></tr>';
     return;
   }
-  asigs.sort((a,b)=>(a.usuarios?.apellido||'').toLowerCase().localeCompare((b.usuarios?.apellido||'').toLowerCase(),'es'));
   document.getElementById('tbody-asignaciones').innerHTML = asigs.map(a=>`<tr>
     <td>${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
     <td>${esc(a.cursos?.nombre)}</td>
@@ -1075,14 +1067,8 @@ async function saveAsignacion() {
   const curso_id=document.getElementById('asig-curso').value;
   const materia_id=document.getElementById('asig-materia').value;
   if (!docente_id||!curso_id||!materia_id) { toast('Completá todos los campos','error'); return; }
-  const {data:existe} = await sb.from('docente_asignacion').select('id, usuarios(nombre,apellido)').eq('curso_id',curso_id).eq('materia_id',materia_id);
-  if (existe?.length) {
-    const doc = existe[0].usuarios;
-    toast(`Esta materia ya tiene asignado a ${doc?.apellido}, ${doc?.nombre}. Eliminá esa asignación primero.`,'error');
-    return;
-  }
   const {error} = await sb.from('docente_asignacion').insert({docente_id,curso_id,materia_id});
-  if (error) { toast(error.message,'error'); return; }
+  if (error) { toast(error.code==='23505'?'Ya existe esa asignación':error.message,'error'); return; }
   toast('Asignación creada','success'); closeM('modal-asignacion'); loadAsignaciones();
 }
 async function deleteAsig(id) {
@@ -1165,21 +1151,16 @@ async function loadSeguimiento() {
         +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Materia</th>'
         +'<th style="padding:8px 12px;font-size:11px;text-align:left;">Docente</th>'
         +'<th style="padding:8px 12px;font-size:11px;text-align:center;">Estado</th>'
-        +'<th style="padding:8px 12px;font-size:11px;text-align:center;">Acciones</th>'
         +'</tr></thead><tbody>';
       for (const a of ca) {
         const cal=(cals||[]).find(x=>x.docente_id===a.docente_id&&x.curso_id===a.curso_id&&x.materia_id===a.materia_id);
         const badge=!cal?'<span class="badge badge-red">Pendiente</span>'
           :cal.finalizada?'<span class="badge badge-green">Finalizado</span>'
           :'<span class="badge badge-yellow">En proceso</span>';
-        const btnReabrir = cal?.finalizada
-          ? `<button class="btn btn-sm btn-danger" onclick="reabrirCarga('${a.docente_id}','${a.curso_id}','${a.materia_id}','${pid}','${esc(a.usuarios?.apellido)} ${esc(a.usuarios?.nombre)}','${esc(a.materias?.nombre)}')">🔓 Reabrir</button>`
-          : '<span style="color:var(--text3);font-size:12px;">—</span>';
         html+=`<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:10px 12px;font-size:13px;">${esc(a.materias?.nombre)}</td>
           <td style="padding:10px 12px;font-size:13px;">${esc(a.usuarios?.apellido)}, ${esc(a.usuarios?.nombre)}</td>
           <td style="padding:10px 12px;text-align:center;">${badge}</td>
-          <td style="padding:10px 12px;text-align:center;">${btnReabrir}</td>
         </tr>`;
       }
       html+='</tbody></table>';
@@ -1189,297 +1170,6 @@ async function loadSeguimiento() {
   document.getElementById('seguimiento-content').innerHTML = html;
 }
 
-
-async function reabrirCarga(docenteId, cursoId, materiaId, periodoId, docenteNombre, materiaNombre) {
-  const ok = confirm('¿Reabrir la carga de "'+materiaNombre+'" del docente '+docenteNombre+'?\n\nATENCIÓN: Esto eliminará todas las notas cargadas para que el docente empiece desde cero.');
-  if (!ok) return;
-  const {error:errDel} = await sb.from('calificaciones').delete()
-    .eq('docente_id', docenteId).eq('curso_id', cursoId).eq('materia_id', materiaId).eq('periodo_id', periodoId);
-  if (errDel) { toast('Error al borrar notas: ' + errDel.message, 'error'); return; }
-  toast('Carga de '+materiaNombre+' reabierta y notas eliminadas', 'success');
-  loadSeguimiento();
-}
-
-
-async function descargarListaDocentes() {
-  toast('Generando lista de docentes...','');
-  const [{data:docs},{data:asigs}] = await Promise.all([
-    sb.from('usuarios').select('*').eq('rol','docente').eq('activo',true).order('apellido'),
-    sb.from('docente_asignacion').select('*, cursos(nombre), materias(nombre)'),
-  ]);
-  const header = ['Apellido','Nombre','Email','Cursos y materias asignadas'];
-  const rows = (docs||[]).map(d => {
-    const dasigs = (asigs||[]).filter(a=>a.docente_id===d.id);
-    const asigStr = dasigs.length ? dasigs.map(a=>a.cursos?.nombre+' - '+a.materias?.nombre).join(' | ') : 'Sin asignaciones';
-    return [d.apellido, d.nombre, d.email, asigStr];
-  });
-  const ESCUELA_NOMBRE = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N\u00b0 1221';
-  const ws = XLSX.utils.aoa_to_sheet([
-    [ESCUELA_NOMBRE,'','',''],
-    ['Lista de Docentes','','',''],
-    ['','','',''],
-    header, ...rows
-  ]);
-  ws['!cols'] = [{wch:22},{wch:18},{wch:30},{wch:60}];
-  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:3}},{s:{r:1,c:0},e:{r:1,c:3}}];
-  const r0 = XLSX.utils.encode_cell({r:0,c:0});
-  if(ws[r0]) ws[r0].s = {font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
-  const r1 = XLSX.utils.encode_cell({r:1,c:0});
-  if(ws[r1]) ws[r1].s = {font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
-  header.forEach((_,c) => {
-    const ref = XLSX.utils.encode_cell({r:3,c});
-    if (!ws[ref]) ws[ref]={v:'',t:'s'};
-    ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-  });
-  rows.forEach((_,ri) => {
-    const bg = ri%2===0 ? 'FFFFFF' : 'F0F4FF';
-    for (let c=0;c<4;c++) {
-      const ref = XLSX.utils.encode_cell({r:ri+4,c});
-      if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}},alignment:{wrapText:true,vertical:'top'}};
-    }
-  });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Docentes');
-  XLSX.writeFile(wb, 'EEMPA_Docentes_'+new Date().getFullYear()+'.xlsx');
-  toast('Lista de docentes descargada','success');
-}
-
-async function descargarListaAlumnos() {
-  toast('Generando lista de alumnos...','');
-  const [{data:cursos},{data:alumnos}] = await Promise.all([
-    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
-    sb.from('alumnos').select('*, cursos(nombre)').eq('activo',true).order('apellido'),
-  ]);
-  const ESCUELA_NOMBRE = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N\u00b0 1221';
-  const wb = XLSX.utils.book_new();
-  for (const curso of (cursos||[])) {
-    const alumnosCurso = (alumnos||[]).filter(a=>a.curso_id===curso.id);
-    if (!alumnosCurso.length) continue;
-    const header = ['N\u00b0','Apellido','Nombre','DNI'];
-    const rows = alumnosCurso.map((a,i) => [i+1, a.apellido, a.nombre, a.dni||'']);
-    const totalCols = 4;
-    const ws = XLSX.utils.aoa_to_sheet([
-      [ESCUELA_NOMBRE,'','',''],
-      [curso.nombre.toUpperCase(),'','',''],
-      ['','','',''],
-      header, ...rows
-    ]);
-    ws['!cols'] = [{wch:5},{wch:22},{wch:18},{wch:14}];
-    ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:3}},{s:{r:1,c:0},e:{r:1,c:3}}];
-    const r0 = XLSX.utils.encode_cell({r:0,c:0});
-    if(ws[r0]) ws[r0].s = {font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
-    const r1 = XLSX.utils.encode_cell({r:1,c:0});
-    if(ws[r1]) ws[r1].s = {font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
-    header.forEach((_,c) => {
-      const ref = XLSX.utils.encode_cell({r:3,c});
-      if (!ws[ref]) ws[ref]={v:'',t:'s'};
-      ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-    });
-    rows.forEach((_,ri) => {
-      const bg = ri%2===0 ? 'FFFFFF' : 'EEF4FF';
-      for (let c=0;c<4;c++) {
-        const ref = XLSX.utils.encode_cell({r:ri+4,c});
-        if (ws[ref]) ws[ref].s = {fill:{fgColor:{rgb:bg}}};
-      }
-    });
-    const sheetName = curso.nombre.replace(/[:\\/?*[\]]/g,'').substring(0,31);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  }
-  XLSX.writeFile(wb, 'EEMPA_Alumnos_'+new Date().getFullYear()+'.xlsx');
-  toast('Lista de alumnos descargada','success');
-}
-
-async function exportarResumenCuatrimestre(cual) {
-  const anio = parseInt(document.getElementById('exp-anio').value);
-  const cval = document.getElementById('exp-curso-resumen').value;
-  if (!anio) { toast('Seleccioná un año','error'); return; }
-  toast('Generando resumen...','');
-  const ESCUELA_NOMBRE = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N\u00b0 1221';
-  const PASTEL = [
-    {bg:'FFD6D6',ft:'8B0000'},{bg:'D6EAFF',ft:'003580'},{bg:'D6FFD6',ft:'1A5C1A'},
-    {bg:'FFF3CC',ft:'7A5800'},{bg:'E8D6FF',ft:'4B0082'},{bg:'FFE8D6',ft:'7A3000'},
-    {bg:'D6FFF5',ft:'006B4F'},{bg:'FFD6F0',ft:'7A0050'},{bg:'E8FFD6',ft:'3B5A00'},
-    {bg:'D6D6FF',ft:'1A007A'}
-  ];
-  const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
-  const pBase = periodos && periodos.find(p=>p.tipo===(cual===1?'1C':'2C'));
-  const prec  = periodos && periodos.find(p=>p.tipo==='REC');
-  const pexr  = periodos && periodos.find(p=>p.tipo==='EXR');
-  let cursosArr;
-  if (cval==='todos') {
-    const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
-    cursosArr = data||[];
-  } else {
-    const {data} = await sb.from('cursos').select('*').eq('id',cval).single();
-    cursosArr = [data];
-  }
-  const wb = XLSX.utils.book_new();
-  const periodoIds = [pBase,prec,pexr].filter(Boolean).map(p=>p.id);
-  for (const curso of cursosArr) {
-    const [{data:cms},{data:alumnos},{data:cals}] = await Promise.all([
-      sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',curso.id),
-      sb.from('alumnos').select('*').eq('curso_id',curso.id).eq('activo',true).order('apellido'),
-      sb.from('calificaciones').select('*').eq('curso_id',curso.id).in('periodo_id',periodoIds),
-    ]);
-    const materias = (cms||[]).map(x=>x.materias);
-    const getNota = (alumnoId, materiaId, periodoId) => {
-      if (!periodoId) return '';
-      const c = (cals||[]).find(x=>x.alumno_id===alumnoId&&x.materia_id===materiaId&&x.periodo_id===periodoId);
-      if (!c) return '';
-      return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
-    };
-    const aprobada = (n) => n!==''&&n!=='A'&&n!=='SC'&&parseInt(n)>=4;
-    const getNotaFinal = (alumnoId, materiaId) => {
-      const nb = getNota(alumnoId, materiaId, pBase&&pBase.id);
-      const nr = getNota(alumnoId, materiaId, prec&&prec.id);
-      const ne = getNota(alumnoId, materiaId, pexr&&pexr.id);
-      if (aprobada(nb)) return {nota:nb, aprobada:true};
-      if (aprobada(nr)) return {nota:nr, aprobada:true};
-      if (aprobada(ne)) return {nota:ne, aprobada:true};
-      const ultima = ne!==''?ne:nr!==''?nr:nb;
-      return {nota:ultima, aprobada:false};
-    };
-    const cuatLabel = cual===1?'1\u00b0 Cuatrimestre':'2\u00b0 Cuatrimestre';
-    const header1 = ['Apellido','Nombre','DNI'];
-    const header2 = ['','',''];
-    for (const m of materias) {
-      header1.push(m.nombre,'','','');
-      header2.push(cual===1?'1\u00b0Cuatrim':'2\u00b0Cuatrim','Recuper.','Ex.Regular','NOTA FINAL');
-    }
-    header1.push('','');
-    header2.push('Promedio','Materias Adeudadas');
-    const rows = [];
-    for (const a of (alumnos||[])) {
-      const row = [a.apellido, a.nombre, a.dni||''];
-      const notasFinales = [];
-      const adeudadas = [];
-      for (const m of materias) {
-        const nb = getNota(a.id, m.id, pBase&&pBase.id);
-        const nr = getNota(a.id, m.id, prec&&prec.id);
-        const ne = getNota(a.id, m.id, pexr&&pexr.id);
-        const fin = getNotaFinal(a.id, m.id);
-        row.push(nb, nr, ne, fin.nota);
-        if (fin.aprobada && fin.nota!=='') notasFinales.push(parseFloat(fin.nota));
-        else if (!fin.aprobada && (nb!==''||nr!==''||ne!=='')) adeudadas.push(m.nombre);
-      }
-      const prom = notasFinales.length?(notasFinales.reduce((s,n)=>s+n,0)/notasFinales.length).toFixed(1):'';
-      row.push(prom, adeudadas.join(', '));
-      rows.push(row);
-    }
-    const totalCols = 3 + materias.length*4 + 2;
-    const wsData = [
-      [ESCUELA_NOMBRE].concat(Array(totalCols-1).fill('')),
-      [curso.nombre.toUpperCase()].concat(Array(totalCols-1).fill('')),
-      [cuatLabel+' '+anio].concat(Array(totalCols-1).fill('')),
-      header1, header2
-    ].concat(rows);
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{wch:22},{wch:16},{wch:12}];
-    for (const m of materias) ws['!cols'].push({wch:11},{wch:11},{wch:11},{wch:13});
-    ws['!cols'].push({wch:12},{wch:45});
-    ws['!merges'] = [
-      {s:{r:0,c:0},e:{r:0,c:totalCols-1}},
-      {s:{r:1,c:0},e:{r:1,c:totalCols-1}},
-      {s:{r:2,c:0},e:{r:2,c:totalCols-1}},
-    ];
-    let ci = 3;
-    for (const m of materias) {
-      ws['!merges'].push({s:{r:3,c:ci},e:{r:3,c:ci+3}});
-      ci += 4;
-    }
-    // Header styles
-    const hR0 = XLSX.utils.encode_cell({r:0,c:0});
-    if(ws[hR0]) ws[hR0].s={font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
-    const hR1 = XLSX.utils.encode_cell({r:1,c:0});
-    if(ws[hR1]) ws[hR1].s={font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
-    const hR2 = XLSX.utils.encode_cell({r:2,c:0});
-    if(ws[hR2]) ws[hR2].s={font:{bold:true,sz:11,color:{rgb:'2563EB'}},fill:{fgColor:{rgb:'EEF4FF'}},alignment:{horizontal:'center',vertical:'center'}};
-    for (let c=0;c<3;c++) {
-      const ref=XLSX.utils.encode_cell({r:3,c});
-      if(!ws[ref]) ws[ref]={v:'',t:'s'};
-      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-    }
-    ci=3;
-    for (let mi=0;mi<materias.length;mi++) {
-      const p=PASTEL[mi%PASTEL.length];
-      for (let cc=ci;cc<ci+4;cc++) {
-        const ref=XLSX.utils.encode_cell({r:3,c:cc});
-        if(!ws[ref]) ws[ref]={v:'',t:'s'};
-        ws[ref].s={font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};
-      }
-      ci+=4;
-    }
-    for (let c=ci;c<totalCols;c++) {
-      const ref=XLSX.utils.encode_cell({r:3,c});
-      if(!ws[ref]) ws[ref]={v:'',t:'s'};
-      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-    }
-    for (let c=0;c<3;c++) {
-      const ref=XLSX.utils.encode_cell({r:4,c});
-      if(!ws[ref]) ws[ref]={v:'',t:'s'};
-      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center',wrapText:true}};
-    }
-    ci=3;
-    for (let mi=0;mi<materias.length;mi++) {
-      const p=PASTEL[mi%PASTEL.length];
-      for (let cc=ci;cc<ci+4;cc++) {
-        const ref=XLSX.utils.encode_cell({r:4,c:cc});
-        if(!ws[ref]) ws[ref]={v:'',t:'s'};
-        ws[ref].s={font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center',wrapText:true}};
-      }
-      ci+=4;
-    }
-    for (let c=ci;c<totalCols;c++) {
-      const ref=XLSX.utils.encode_cell({r:4,c});
-      if(!ws[ref]) ws[ref]={v:'',t:'s'};
-      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center'}};
-    }
-    const notaColor = (v) => {
-      if (v==='A'||v==='SC') return {bg:'EEEEEE',ft:'555555',bold:false};
-      const n=parseInt(v);
-      if (n<=3) return {bg:'FFE0E0',ft:'B52A2A',bold:true};
-      if (n<=6) return {bg:'E0F5E8',ft:'1A6E3A',bold:false};
-      return {bg:'E0EEFF',ft:'1E47C9',bold:false};
-    };
-    rows.forEach((row,ri) => {
-      const r=ri+5;
-      ci=3;
-      for (let mi=0;mi<materias.length;mi++) {
-        const p=PASTEL[mi%PASTEL.length];
-        for (let cc=ci;cc<ci+3;cc++) {
-          const ref=XLSX.utils.encode_cell({r,c:cc});
-          if(!ws[ref]||ws[ref].v===''){if(ws[ref])ws[ref].s={fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};continue;}
-          const nc=notaColor(ws[ref].v);
-          ws[ref].s={fill:{fgColor:{rgb:nc.bg}},font:{bold:nc.bold,color:{rgb:nc.ft}},alignment:{horizontal:'center'}};
-        }
-        const finalRef=XLSX.utils.encode_cell({r,c:ci+3});
-        if(ws[finalRef]&&ws[finalRef].v!==''){
-          const nc=notaColor(ws[finalRef].v);
-          ws[finalRef].s={fill:{fgColor:{rgb:nc.bg}},font:{bold:true,color:{rgb:nc.ft},sz:11},alignment:{horizontal:'center'}};
-        }
-        ci+=4;
-      }
-      const promRef=XLSX.utils.encode_cell({r,c:ci});
-      if(ws[promRef]&&ws[promRef].v!==''){
-        const pv=parseFloat(ws[promRef].v);
-        let pRgb='EEEEEE',pFont='555555';
-        if(!isNaN(pv)){if(pv<=3){pRgb='FFE0E0';pFont='B52A2A';}else if(pv<=6){pRgb='E0F5E8';pFont='1A6E3A';}else{pRgb='E0EEFF';pFont='1E47C9';}}
-        ws[promRef].s={fill:{fgColor:{rgb:pRgb}},font:{bold:true,color:{rgb:pFont}},alignment:{horizontal:'center'}};
-      }
-      const adRef=XLSX.utils.encode_cell({r,c:ci+1});
-      if(ws[adRef]&&ws[adRef].v!==''){
-        ws[adRef].s={font:{bold:true,color:{rgb:'B52A2A'}},fill:{fgColor:{rgb:'FFE0E0'}}};
-      }
-    });
-    const sheetName = curso.nombre.replace(/[:\\/?*[\]]/g,'').substring(0,31);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  }
-  const label = cual===1?'1erCuat':'2doCuat';
-  XLSX.writeFile(wb, 'EEMPA_Resumen_'+label+'_'+anio+'.xlsx');
-  toast('Planilla resumen descargada','success');
-}
-
-
 // ═══════════════════════════════════════
 // EXPORTAR EXCEL
 // ═══════════════════════════════════════
@@ -1488,49 +1178,27 @@ async function loadExportar() {
     sb.from('cursos').select('*').eq('activo',true).order('nombre'),
     sb.from('periodos').select('*').order('anio,tipo'),
   ]);
+  const anios = [...new Set((ps||[]).map(p=>p.anio))].sort((a,b)=>b-a);
   document.getElementById('exportar-content').innerHTML = `
-    <div class="card card-pad" style="max-width:480px;">
-      <div class="field" style="margin-bottom:14px;"><label>Período</label>
-        <select id="exp-periodo">${(ps||[]).map(p=>`<option value="${p.id}">${tipoPeriodoLabel(p.tipo)} ${p.anio}</option>`).join('')}</select>
+    <div style="display:flex;flex-direction:column;gap:16px;max-width:520px;">
+      <div class="card card-pad" style="border:2px solid var(--accent);">
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px;">📊 Planilla de calificaciones</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">
+          Un alumno por fila · Por cada materia: Cal. Parcial / Recuperatorio / Ex. Regular / Cal. Final
+        </div>
+        <div class="field" style="margin-bottom:14px;"><label>Año</label>
+          <select id="exp-anio-final">${anios.map(a=>`<option value="${a}">${a}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin-bottom:20px;"><label>Curso</label>
+          <select id="exp-curso-final">
+            <option value="todos">Todos los cursos (una hoja por curso)</option>
+            ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;" onclick="exportarPlanillaFinal()">
+          ⬇ Descargar planilla
+        </button>
       </div>
-      <div class="field" style="margin-bottom:20px;"><label>Curso</label>
-        <select id="exp-curso">
-          <option value="todos">Todos los cursos (una hoja por curso)</option>
-          ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
-        </select>
-      </div>
-      <button class="btn btn-success" style="font-size:14px;padding:11px 20px;" onclick="exportarExcel()">
-        ⬇ Descargar planilla Excel
-      </button>
-    </div>
-    <div class="card card-pad" style="max-width:480px;margin-top:16px;">
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">📊 Planilla resumen anual</h3>
-      <p style="font-size:13px;color:var(--text3);margin-bottom:14px;">Incluye todos los períodos, nota final por cuatrimestre, promedio general y materias adeudadas.</p>
-      <div class="field" style="margin-bottom:14px;"><label>Año</label>
-        <select id="exp-anio">${[...new Set((ps||[]).map(p=>p.anio))].sort((a,b)=>b-a).map(a=>`<option value="${a}">${a}</option>`).join('')}</select>
-      </div>
-      <div class="field" style="margin-bottom:20px;"><label>Curso</label>
-        <select id="exp-curso-resumen">
-          <option value="todos">Todos los cursos (una hoja por curso)</option>
-          ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
-        </select>
-      </div>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;margin-bottom:10px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
-        ⬇ Descargar resumen 1° Cuatrimestre
-      </button>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(2)">
-        ⬇ Descargar resumen 2° Cuatrimestre
-      </button>
-    </div>
-    <div class="card card-pad" style="max-width:480px;margin-top:16px;">
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">📈 Relevamiento de supervisión</h3>
-      <p style="font-size:13px;color:var(--text3);margin-bottom:14px;">Aprobados, desaprobados y % de desaprobados por materia y año, agrupando todas las divisiones (A, B, etc).</p>
-      <div class="field" style="margin-bottom:20px;"><label>Período</label>
-        <select id="exp-relev-periodo">${(ps||[]).map(p=>`<option value="${p.id}">${tipoPeriodoLabel(p.tipo)} ${p.anio}</option>`).join('')}</select>
-      </div>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarRelevamiento()">
-        ⬇ Descargar relevamiento de supervisión
-      </button>
     </div>`;
 }
 
@@ -1557,7 +1225,7 @@ async function exportarExcel() {
       sb.from('calificaciones').select('*').eq('curso_id',curso.id).eq('periodo_id',pid),
     ]);
     const materias = (cms||[]).map(x=>x.materias);
-    const header = ['Apellido','Nombre','DNI',...materias.map(m=>m.nombre),'Promedio'];
+    const header = ['Apellido','Nombre','DNI',...materias.map(m=>m.nombre),'Promedio','Fecha carga'];
     const rows = (alumnos||[]).map(a=>{
       const notas = materias.map(m=>{
         const c=(cals||[]).find(x=>x.alumno_id===a.id&&x.materia_id===m.id);
@@ -1566,292 +1234,324 @@ async function exportarExcel() {
       });
       const nums = notas.filter(n=>n!==''&&n!=='A'&&n!=='SC').map(Number);
       const prom = nums.length ? (nums.reduce((s,n)=>s+n,0)/nums.length).toFixed(1) : '';
-      return [a.apellido,a.nombre,a.dni||'',...notas,prom];
-    });
-
-    // Filas de docente y fecha por materia (al final de la tabla)
-    // Buscar docente asignado a cada materia en este curso
-    const {data:asigsCurso} = await sb.from('docente_asignacion')
-      .select('materia_id, usuarios(nombre,apellido)')
-      .eq('curso_id', curso.id);
-    const rowFecha = ['Fecha carga','',''].concat(materias.map(m=>{
-      const cal = (cals||[]).find(x=>x.materia_id===m.id&&x.fecha_carga);
-      return cal&&cal.fecha_carga ? new Date(cal.fecha_carga).toLocaleDateString('es-AR') : '';
-    })).concat(['']);
-    const rowDocente = ['Docente','',''].concat(materias.map(m=>{
-      const asig = (asigsCurso||[]).find(a=>a.materia_id===m.id);
-      return asig ? asig.usuarios.apellido+', '+asig.usuarios.nombre : '';
-    })).concat(['']);
-    const PASTEL_EXP = [
-      {bg:'FFD6D6',ft:'8B0000'},{bg:'D6EAFF',ft:'003580'},{bg:'D6FFD6',ft:'1A5C1A'},
-      {bg:'FFF3CC',ft:'7A5800'},{bg:'E8D6FF',ft:'4B0082'},{bg:'FFE8D6',ft:'7A3000'},
-      {bg:'D6FFF5',ft:'006B4F'},{bg:'FFD6F0',ft:'7A0050'},{bg:'E8FFD6',ft:'3B5A00'},
-      {bg:'D6D6FF',ft:'1A007A'}
-    ];
-    const notaStartCol = 3;
-    const notaEndCol   = 3 + materias.length;
-    const totalCols    = notaEndCol + 1;
-    const ESCUELA_EXP  = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N° 1221';
-    const periodoLabel = tipoPeriodoLabel(periodo.tipo)+' '+periodo.anio;
-
-    const wsData = [
-      [ESCUELA_EXP].concat(Array(totalCols-1).fill('')),
-      [curso.nombre.toUpperCase()].concat(Array(totalCols-1).fill('')),
-      [periodoLabel].concat(Array(totalCols-1).fill('')),
-      header,
-      ...rows,
-      rowFecha,
-      rowDocente
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{wch:22},{wch:16},{wch:12},...materias.map(()=>({wch:12})),{wch:10}];
-    ws['!merges'] = [
-      {s:{r:0,c:0},e:{r:0,c:totalCols-1}},
-      {s:{r:1,c:0},e:{r:1,c:totalCols-1}},
-      {s:{r:2,c:0},e:{r:2,c:totalCols-1}},
-    ];
-
-    // Fila 0: nombre escuela
-    const expH0 = XLSX.utils.encode_cell({r:0,c:0});
-    if(ws[expH0]) ws[expH0].s={font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
-    // Fila 1: curso
-    const expH1 = XLSX.utils.encode_cell({r:1,c:0});
-    if(ws[expH1]) ws[expH1].s={font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
-    // Fila 2: período
-    const expH2 = XLSX.utils.encode_cell({r:2,c:0});
-    if(ws[expH2]) ws[expH2].s={font:{bold:true,sz:11,color:{rgb:'2563EB'}},fill:{fgColor:{rgb:'EEF4FF'}},alignment:{horizontal:'center',vertical:'center'}};
-
-    // Fila 3: encabezado tabla — primeras 3 cols azul, materias con pastel, últimas 2 azul
-    for (let c=0; c<3; c++) {
-      const ref = XLSX.utils.encode_cell({r:3,c});
-      if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-    }
-    for (let mi=0; mi<materias.length; mi++) {
-      const p = PASTEL_EXP[mi % PASTEL_EXP.length];
-      const ref = XLSX.utils.encode_cell({r:3, c:notaStartCol+mi});
-      if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:p.ft}},fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};
-    }
-    // Promedio col header
-    const promHeaderRef = XLSX.utils.encode_cell({r:3,c:notaEndCol});
-    if(ws[promHeaderRef]) ws[promHeaderRef].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-
-    // Colores notas en datos (ahora desde fila 4)
-    rows.forEach((row, ri) => {
-      const r = ri + 4;
-      for (let mi = 0; mi < materias.length; mi++) {
-        const c = notaStartCol + mi;
-        const p = PASTEL_EXP[mi % PASTEL_EXP.length];
-        const cellRef = XLSX.utils.encode_cell({r, c});
-        if (!ws[cellRef] || ws[cellRef].v === '') {
-          if(ws[cellRef]) ws[cellRef].s={fill:{fgColor:{rgb:p.bg}},alignment:{horizontal:'center'}};
-          continue;
-        }
-        const val = ws[cellRef].v;
-        let rgb, fontRgb, bold=false;
-        if (val === 'A' || val === 'SC') {
-          rgb='EEEEEE'; fontRgb='555555';
-        } else {
-          const n = parseInt(val);
-          if (n <= 3)      { rgb='FFE0E0'; fontRgb='B52A2A'; bold=true; }
-          else if (n <= 6) { rgb='E0F5E8'; fontRgb='1A6E3A'; }
-          else             { rgb='E0EEFF'; fontRgb='1E47C9'; }
-        }
-        ws[cellRef].s = { fill:{fgColor:{rgb}}, font:{bold, color:{rgb:fontRgb}}, alignment:{horizontal:'center'} };
-      }
-      // Promedio
-      const promRef = XLSX.utils.encode_cell({r, c:notaEndCol});
-      if (ws[promRef] && ws[promRef].v !== '') {
-        const pv = parseFloat(ws[promRef].v);
-        let pRgb='EEEEEE', pFont='555555';
-        if (!isNaN(pv)) {
-          if (pv <= 3)      { pRgb='FFE0E0'; pFont='B52A2A'; }
-          else if (pv <= 6) { pRgb='E0F5E8'; pFont='1A6E3A'; }
-          else              { pRgb='E0EEFF'; pFont='1E47C9'; }
-        }
-        ws[promRef].s = { fill:{fgColor:{rgb:pRgb}}, font:{bold:true,color:{rgb:pFont}}, alignment:{horizontal:'center'} };
-      }
-    });
-
-    // Estilos filas fecha y docente al final
-    const dataRows = rows.length;
-    const rFecha = 4 + dataRows;
-    const rDoc   = 4 + dataRows + 1;
-    // Etiquetas
-    ['Fecha carga','Docente'].forEach((lbl,i) => {
-      const r = rFecha + i;
-      const ref = XLSX.utils.encode_cell({r,c:0});
-      if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'left'}};
-    });
-    // Celdas por materia
-    for (let mi=0; mi<materias.length; mi++) {
-      const p = PASTEL_EXP[mi % PASTEL_EXP.length];
-      const c = notaStartCol + mi;
-      [rFecha, rDoc].forEach(r => {
-        const ref = XLSX.utils.encode_cell({r,c});
-        if(ws[ref]) ws[ref].s={fill:{fgColor:{rgb:p.bg}},font:{color:{rgb:p.ft}},alignment:{horizontal:'center',wrapText:true}};
+      const fechas = materias.map(m=>{
+        const c=(cals||[]).find(x=>x.alumno_id===a.id&&x.materia_id===m.id);
+        return c&&c.fecha_carga ? new Date(c.fecha_carga).toLocaleDateString('es-AR') : '';
       });
-    }
-
-    XLSX.utils.book_append_sheet(wb, ws, curso.nombre.replace(/[:\/?*[\]]/g,'').substring(0,31));
+      const fechaUnica = [...new Set(fechas.filter(Boolean))].join(' / ') || '';
+      return [a.apellido,a.nombre,a.dni||'',...notas,prom,fechaUnica];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([header,...rows]);
+    ws['!cols'] = [{wch:22},{wch:16},{wch:12},...materias.map(()=>({wch:12})),{wch:10},{wch:14}];
+    _estilarWS(ws, rows, 3, 3+materias.length);
+    XLSX.utils.book_append_sheet(wb, ws, curso.nombre.replace(/[:\/?*\[\]]/g,'').substring(0,31));
   }
-  XLSX.writeFile(wb, 'EEMPA_'+periodo.tipo+'_'+periodo.anio+'.xlsx');
+  XLSX.writeFile(wb, `EEMPA_${periodo.tipo}_${periodo.anio}.xlsx`);
   toast('Planilla descargada','success');
 }
 
-// ═══════════════════════════════════════
-// RELEVAMIENTO DE SUPERVISIÓN
-// ═══════════════════════════════════════
-function parseAnioDivision(nombreCurso) {
-  // Intenta extraer "1°", "2°", "3er", etc y la división (A, B, C...) del nombre del curso
-  const m = nombreCurso.match(/(\d)[°º]?\s*(?:año|AÑO|Año)?/i);
-  const anioNum = m ? m[1] : '?';
-  const divM = nombreCurso.match(/\b([A-Z])\b\s*$/);
-  const division = divM ? divM[1] : nombreCurso.replace(/.*?(\d)[°º]?\s*(?:año|AÑO|Año)?/i,'').trim() || '?';
-  const anioLabel = {'1':'1er Año','2':'2do Año','3':'3er Año','4':'4to Año','5':'5to Año','6':'6to Año'}[anioNum] || (anioNum+'° Año');
-  return {anioNum, anioLabel, division};
-}
+// ─── PLANILLA FINAL: por materia con instancias como sub-columnas ───────────
+async function exportarPlanillaFinal() {
+  const anio = parseInt(document.getElementById('exp-anio-final').value);
+  const cval = document.getElementById('exp-curso-final').value;
+  if (!anio) { toast('Seleccioná un año','error'); return; }
+  toast('Generando planilla final...','');
 
-async function exportarRelevamiento() {
-  const periodoId = document.getElementById('exp-relev-periodo').value;
-  if (!periodoId) { toast('Seleccioná un período','error'); return; }
-  toast('Generando relevamiento...','');
+  // Períodos del año ordenados: REC → RECUP → EXR
+  const ordenTipoExp = {'REC':1,'RECUP':2,'EXR':3};
+  const {data:periodos} = await sb.from('periodos').select('*').eq('anio',anio).order('tipo');
+  const periodosOrdenados = (periodos||[]).sort((a,b)=>(ordenTipoExp[a.tipo]||9)-(ordenTipoExp[b.tipo]||9));
 
-  const {data:periodo} = await sb.from('periodos').select('*').eq('id',periodoId).single();
-  const [{data:cursos},{data:cms},{data:cals}] = await Promise.all([
-    sb.from('cursos').select('*').eq('activo',true).order('nombre'),
-    sb.from('curso_materia').select('curso_id, materias(id,nombre)'),
-    sb.from('calificaciones').select('curso_id,materia_id,nota,nota_especial').eq('periodo_id',periodoId),
-  ]);
+  if (!periodosOrdenados.length) { toast('No hay períodos para ese año','error'); return; }
 
-  // Agrupar cursos por año, detectar divisiones
-  const porAnio = {}; // { '1': { anioLabel, divisiones: Set, materias: {nombre: {div: {ap,des}}} } }
-  for (const c of (cursos||[])) {
-    const {anioNum, anioLabel, division} = parseAnioDivision(c.nombre);
-    if (!porAnio[anioNum]) porAnio[anioNum] = {anioLabel, divisiones: new Set(), materiasOrder: [], materias: {}};
-    porAnio[anioNum].divisiones.add(division);
-
-    const materiasCurso = (cms||[]).filter(x=>x.curso_id===c.id).map(x=>x.materias);
-    for (const m of materiasCurso) {
-      if (!porAnio[anioNum].materias[m.nombre]) {
-        porAnio[anioNum].materias[m.nombre] = {};
-        porAnio[anioNum].materiasOrder.push(m.nombre);
-      }
-      if (!porAnio[anioNum].materias[m.nombre][division]) porAnio[anioNum].materias[m.nombre][division] = {ap:0, des:0};
-
-      // Contar alumnos de este curso/materia con nota aprobada (>=7) o desaprobada
-      const calsCM = (cals||[]).filter(x=>x.curso_id===c.id&&x.materia_id===m.id);
-      for (const cal of calsCM) {
-        const val = cal.nota_especial || cal.nota;
-        if (val===null||val===undefined||val==='') continue;
-        if (val==='A'||val==='SC') continue; // ausente/sin calificar no cuenta
-        const n = parseInt(val);
-        if (isNaN(n)) continue;
-        if (n>=7) porAnio[anioNum].materias[m.nombre][division].ap++;
-        else porAnio[anioNum].materias[m.nombre][division].des++;
-      }
-    }
+  let cursosArr;
+  if (cval==='todos') {
+    const {data} = await sb.from('cursos').select('*').eq('activo',true).order('nombre');
+    cursosArr = data||[];
+  } else {
+    const {data} = await sb.from('cursos').select('*').eq('id',cval).single();
+    cursosArr = [data];
   }
 
-  const aniosOrdenados = Object.keys(porAnio).sort();
-  const divisionesGlobales = [...new Set(aniosOrdenados.flatMap(a=>[...porAnio[a].divisiones]))].sort();
+  // Etiquetas cortas para sub-columnas de instancias
+  const INST_LABELS = {'REC':'Cal. Parcial','RECUP':'Recuperatorio','EXR':'Ex. Regular'};
 
-  // Construir hoja única estilo "1221"
-  const ESCUELA_REL = 'ESCUELA DE ENSEÑANZA MEDIA PARA ADULTOS N\u00b0 1221';
-  const periodoLabel = tipoPeriodoLabel(periodo.tipo)+' '+periodo.anio;
-
-  const header1 = ['Curso','Materia'];
-  const header2 = ['',''];
-  for (const div of divisionesGlobales) {
-    header1.push('División '+div,'','');
-    header2.push('Aprobados','Desaprobados','% Desaprobados');
-  }
-  const totalCols = 2 + divisionesGlobales.length*3;
-
-  const rows = [];
-  for (const anioNum of aniosOrdenados) {
-    const grupo = porAnio[anioNum];
-    for (const matNombre of grupo.materiasOrder) {
-      const row = [grupo.anioLabel, matNombre];
-      for (const div of divisionesGlobales) {
-        const datos = grupo.materias[matNombre][div];
-        if (!datos) { row.push('','',''); continue; }
-        const tot = datos.ap + datos.des;
-        const pct = tot>0 ? Math.round(datos.des/tot*100)+'%' : '';
-        row.push(datos.ap||'', datos.des||'', pct);
-      }
-      rows.push(row);
-    }
-  }
-
-  const wsData = [
-    [ESCUELA_REL].concat(Array(totalCols-1).fill('')),
-    ['Relevamiento de aprobados y desaprobados - '+periodoLabel].concat(Array(totalCols-1).fill('')),
-    header1, header2,
-    ...rows
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws['!cols'] = [{wch:12},{wch:30}].concat(divisionesGlobales.flatMap(()=>[{wch:11},{wch:12},{wch:16}]));
-  ws['!merges'] = [
-    {s:{r:0,c:0},e:{r:0,c:totalCols-1}},
-    {s:{r:1,c:0},e:{r:1,c:totalCols-1}},
-  ];
-  let ci=2;
-  for (const div of divisionesGlobales) {
-    ws['!merges'].push({s:{r:2,c:ci},e:{r:2,c:ci+2}});
-    ci+=3;
-  }
-
-  // Estilos encabezado institucional
-  const r0 = XLSX.utils.encode_cell({r:0,c:0});
-  if(ws[r0]) ws[r0].s={font:{bold:true,sz:13,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
-  const r1 = XLSX.utils.encode_cell({r:1,c:0});
-  if(ws[r1]) ws[r1].s={font:{bold:true,sz:12,color:{rgb:'1E3A8A'}},fill:{fgColor:{rgb:'D6EAFF'}},alignment:{horizontal:'center',vertical:'center'}};
-
-  // Estilos encabezado tabla
-  for (let c=0;c<2;c++) {
-    [2,3].forEach(r=>{
-      const ref=XLSX.utils.encode_cell({r,c});
-      if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
-    });
-  }
-  for (let c=2;c<totalCols;c++) {
-    [2,3].forEach(r=>{
-      const ref=XLSX.utils.encode_cell({r,c});
-      if(ws[ref]) ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2563EB'}},alignment:{horizontal:'center',wrapText:true}};
-    });
-  }
-
-  // Colores filas de datos: alternadas + porcentaje destacado
-  rows.forEach((row,ri)=>{
-    const r = ri+4;
-    const bg = ri%2===0?'FFFFFF':'F0F4FF';
-    for (let c=0;c<2;c++) {
-      const ref=XLSX.utils.encode_cell({r,c});
-      if(ws[ref]) ws[ref].s={fill:{fgColor:{rgb:bg}}};
-    }
-    let cc=2;
-    for (let di=0; di<divisionesGlobales.length; di++) {
-      for (let k=0;k<2;k++) {
-        const ref=XLSX.utils.encode_cell({r,c:cc+k});
-        if(ws[ref]) ws[ref].s={fill:{fgColor:{rgb:bg}},alignment:{horizontal:'center'}};
-      }
-      const pctRef = XLSX.utils.encode_cell({r,c:cc+2});
-      if(ws[pctRef] && ws[pctRef].v!=='') {
-        const pv = parseInt(ws[pctRef].v);
-        let pRgb='EEEEEE', pFont='555555';
-        if(!isNaN(pv)){ if(pv>=30){pRgb='FFE0E0';pFont='B52A2A';} else if(pv>0){pRgb='FFF3CC';pFont='7A5800';} else {pRgb='E0F5E8';pFont='1A6E3A';} }
-        ws[pctRef].s={fill:{fgColor:{rgb:pRgb}},font:{bold:true,color:{rgb:pFont}},alignment:{horizontal:'center'}};
-      } else if(ws[pctRef]) {
-        ws[pctRef].s={fill:{fgColor:{rgb:bg}},alignment:{horizontal:'center'}};
-      }
-      cc+=3;
-    }
-  });
+  // Colores de fondo por instancia (cabecera de grupo)
+  const INST_COLORS = {'REC':'1E3A8A','RECUP':'7C3AED','EXR':'B45309'};
+  const INST_SUBCOL_COLORS = {'REC':'DBEAFE','RECUP':'EDE9FE','EXR':'FEF3C7'};
+  const INST_FONT_COLORS = {'REC':'1E3A8A','RECUP':'5B21B6','EXR':'92400E'};
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Relevamiento');
-  XLSX.writeFile(wb, 'EEMPA_Relevamiento_'+periodo.tipo+'_'+periodo.anio+'.xlsx');
-  toast('Relevamiento descargado','success');
+
+  for (const curso of cursosArr) {
+    const [{data:cms},{data:alumnos}] = await Promise.all([
+      sb.from('curso_materia').select('materias(id,nombre)').eq('curso_id',curso.id),
+      sb.from('alumnos').select('*').eq('curso_id',curso.id).eq('activo',true).order('apellido'),
+    ]);
+    const materias = (cms||[]).map(x=>x.materias).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+
+    // Cargar todas las calificaciones del año para este curso
+    // allCals[periodoId][alumnoId][materiaId] = cal
+    const allCals = {};
+    for (const p of periodosOrdenados) {
+      const {data:cc} = await sb.from('calificaciones').select('*').eq('curso_id',curso.id).eq('periodo_id',p.id);
+      allCals[p.id] = {};
+      (cc||[]).forEach(c => {
+        if (!allCals[p.id][c.alumno_id]) allCals[p.id][c.alumno_id] = {};
+        allCals[p.id][c.alumno_id][c.materia_id] = c;
+      });
+    }
+
+    // Helper: obtener nota de un alumno en una materia en un período
+    function getNota(periodoId, alumnoId, materiaId) {
+      const c = allCals[periodoId]?.[alumnoId]?.[materiaId];
+      if (!c) return '';
+      return c.nota_especial ? c.nota_especial : (c.nota != null ? c.nota : '');
+    }
+
+    // Helper: calificación final de un alumno en una materia
+    // Regla: aprobado (>=7) en REC → cal final = nota REC
+    //        aprobado (>=7) en RECUP → cal final = nota RECUP
+    //        siempre muestra EXR como final si existe
+    function getCalFinalMateria(alumnoId, materiaId) {
+      for (const p of periodosOrdenados) {
+        const nota = getNota(p.id, alumnoId, materiaId);
+        const n = parseInt(nota);
+        if (p.tipo === 'EXR') {
+          // EXR siempre es la nota final
+          return nota !== '' ? nota : '—';
+        } else {
+          // REC o RECUP: solo si aprobó
+          if (!isNaN(n) && n >= 7) return nota;
+        }
+      }
+      return '—';
+    }
+
+    // Helper: estado final de un alumno en una materia
+    function getEstadoMateria(alumnoId, materiaId) {
+      const calFinal = getCalFinalMateria(alumnoId, materiaId);
+      if (calFinal === '—' || calFinal === '') return 'Pendiente';
+      if (calFinal === 'A' || calFinal === 'SC') return calFinal;
+      const n = parseInt(calFinal);
+      if (isNaN(n)) return 'Pendiente';
+      return n >= 7 ? 'Aprobado' : 'Desaprobado';
+    }
+
+    // ── Construir estructura de cabeceras ──
+    // Fila 1 (grupos): Alumno | [Materia 1: sub-cols] | [Materia 2: sub-cols] | ...
+    // Fila 2 (sub-cols): '' '' '' | [instancias + Cal.Final] por cada materia
+
+    // Sub-columnas por materia: una por cada período + "Cal. Final" + "Estado"
+    const subCols = [...periodosOrdenados.map(p => INST_LABELS[p.tipo]||tipoPeriodoLabel(p.tipo)), 'Cal. Final', 'Estado'];
+    const SUB_COUNT = subCols.length;
+    const COLS_FIJOS = 3; // Apellido, Nombre, DNI
+
+    const fila1 = ['Apellido', 'Nombre', 'DNI'];
+    materias.forEach(m => {
+      fila1.push(m.nombre);
+      for (let i=1; i<SUB_COUNT; i++) fila1.push('');
+    });
+    fila1.push('Materias adeudadas');
+
+    const fila2 = ['', '', ''];
+    materias.forEach(() => { subCols.forEach(s => fila2.push(s)); });
+    fila2.push('');
+
+    // Filas de datos
+    const dataRows = (alumnos||[]).map(a => {
+      const row = [a.apellido, a.nombre, a.dni||''];
+      materias.forEach(m => {
+        // Notas por instancia
+        periodosOrdenados.forEach(p => {
+          row.push(getNota(p.id, a.id, m.id));
+        });
+        // Cal. Final
+        row.push(getCalFinalMateria(a.id, m.id));
+        // Estado
+        row.push(getEstadoMateria(a.id, m.id));
+      });
+      // Materias adeudadas: toda materia cuya cal. final sea < 7 o sin nota
+      const adeudadas = materias.filter(m => {
+        const cal = getCalFinalMateria(a.id, m.id);
+        if (cal === '—' || cal === '' || cal === 'A' || cal === 'SC') return true;
+        const n = parseInt(cal);
+        return isNaN(n) || n < 7;
+      }).map(m => m.nombre);
+      row.push(adeudadas.length > 0 ? adeudadas.join(' / ') : 'Ninguna');
+      return row;
+    });
+
+    const wsData = [fila1, fila2, ...dataRows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // ── Anchos de columna ──
+    const colWidths = [{wch:22},{wch:16},{wch:10}];
+    materias.forEach(() => {
+      periodosOrdenados.forEach(()=>colWidths.push({wch:13}));
+      colWidths.push({wch:11}); // Cal. Final
+      colWidths.push({wch:13}); // Estado
+    });
+    colWidths.push({wch:50}); // Materias adeudadas
+    ws['!cols'] = colWidths;
+
+    const totalCols = fila1.length;
+
+    // ── Estilos fila 1 (nombre de materia): fondo azul oscuro ──
+    for (let c=0; c<COLS_FIJOS; c++) {
+      const ref = XLSX.utils.encode_cell({r:0,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center'}};
+    }
+    materias.forEach((m, mi) => {
+      const startC = COLS_FIJOS + mi * SUB_COUNT;
+      for (let i=0; i<SUB_COUNT; i++) {
+        const ref = XLSX.utils.encode_cell({r:0, c:startC+i});
+        if (!ws[ref]) ws[ref]={v:i===0?m.nombre:'',t:'s'};
+        ws[ref].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+      }
+    });
+
+    // ── Estilos fila 2 (sub-cabeceras por instancia) ──
+    for (let c=0; c<COLS_FIJOS; c++) {
+      const ref = XLSX.utils.encode_cell({r:1,c});
+      if (!ws[ref]) ws[ref]={v:'',t:'s'};
+      ws[ref].s={font:{bold:true},fill:{fgColor:{rgb:'EEF1FD'}},alignment:{horizontal:'center'}};
+    }
+    materias.forEach((m, mi) => {
+      const startC = COLS_FIJOS + mi * SUB_COUNT;
+      periodosOrdenados.forEach((p, pi) => {
+        const ref = XLSX.utils.encode_cell({r:1, c:startC+pi});
+        if (!ws[ref]) ws[ref]={v:INST_LABELS[p.tipo]||tipoPeriodoLabel(p.tipo),t:'s'};
+        ws[ref].s={
+          font:{bold:true,color:{rgb:INST_FONT_COLORS[p.tipo]||'1E3A8A'},sz:10},
+          fill:{fgColor:{rgb:INST_SUBCOL_COLORS[p.tipo]||'DBEAFE'}},
+          alignment:{horizontal:'center',vertical:'center',wrapText:true}
+        };
+      });
+      // Cal. Final
+      const cfRef = XLSX.utils.encode_cell({r:1, c:startC+periodosOrdenados.length});
+      if (!ws[cfRef]) ws[cfRef]={v:'Cal. Final',t:'s'};
+      ws[cfRef].s={font:{bold:true,color:{rgb:'1A6E3A'},sz:10},fill:{fgColor:{rgb:'D1FAE5'}},alignment:{horizontal:'center',vertical:'center'}};
+      // Estado
+      const estRef = XLSX.utils.encode_cell({r:1, c:startC+periodosOrdenados.length+1});
+      if (!ws[estRef]) ws[estRef]={v:'Estado',t:'s'};
+      ws[estRef].s={font:{bold:true,color:{rgb:'374151'},sz:10},fill:{fgColor:{rgb:'F3F4F6'}},alignment:{horizontal:'center',vertical:'center'}};
+    });
+
+    // ── Estilos celdas de datos ──
+    function estiloNota(val) {
+      if (!val && val!==0) return null;
+      const s = String(val);
+      if (s===''||s==='—') return null;
+      if (s==='A'||s==='SC') return {fill:{fgColor:{rgb:'EEEEEE'}},font:{color:{rgb:'555555'}},alignment:{horizontal:'center'}};
+      const n=parseInt(s);
+      if (isNaN(n)) return null;
+      if (n<=3) return {fill:{fgColor:{rgb:'FFE0E0'}},font:{bold:true,color:{rgb:'B52A2A'}},alignment:{horizontal:'center'}};
+      if (n<=6) return {fill:{fgColor:{rgb:'FEF9E6'}},font:{color:{rgb:'8a6400'}},alignment:{horizontal:'center'}};
+      return {fill:{fgColor:{rgb:'E0EEFF'}},font:{bold:true,color:{rgb:'1E47C9'}},alignment:{horizontal:'center'}};
+    }
+    function estiloEstado(val) {
+      if (val==='Aprobado')    return {fill:{fgColor:{rgb:'D1FAE5'}},font:{bold:true,color:{rgb:'1A6E3A'}},alignment:{horizontal:'center'}};
+      if (val==='Desaprobado') return {fill:{fgColor:{rgb:'FFE0E0'}},font:{bold:true,color:{rgb:'B52A2A'}},alignment:{horizontal:'center'}};
+      if (val==='Pendiente')   return {fill:{fgColor:{rgb:'FEF9E6'}},font:{color:{rgb:'8a6400'}},alignment:{horizontal:'center'}};
+      return {alignment:{horizontal:'center'}};
+    }
+
+    dataRows.forEach((row, ri) => {
+      const r = ri + 2;
+      // Apellido/Nombre/DNI
+      for (let c=0; c<COLS_FIJOS; c++) {
+        const ref = XLSX.utils.encode_cell({r,c});
+        if (ws[ref]) ws[ref].s={alignment:{vertical:'center'},font:{sz:11}};
+      }
+      materias.forEach((m, mi) => {
+        const startC = COLS_FIJOS + mi * SUB_COUNT;
+        // Notas por instancia
+        periodosOrdenados.forEach((p, pi) => {
+          const ref = XLSX.utils.encode_cell({r, c:startC+pi});
+          if (!ws[ref]) return;
+          const s = estiloNota(ws[ref].v);
+          if (s) ws[ref].s = s;
+          else ws[ref].s = {alignment:{horizontal:'center'}};
+        });
+        // Cal. Final
+        const cfRef = XLSX.utils.encode_cell({r, c:startC+periodosOrdenados.length});
+        if (ws[cfRef]) {
+          const s = estiloNota(ws[cfRef].v);
+          if (s) ws[cfRef].s = {...s, font:{...s.font, bold:true}};
+          else ws[cfRef].s = {alignment:{horizontal:'center'}};
+        }
+        // Estado
+        const estRef = XLSX.utils.encode_cell({r, c:startC+periodosOrdenados.length+1});
+        if (ws[estRef]) ws[estRef].s = estiloEstado(ws[estRef].v);
+      });
+      // Materias adeudadas
+      const adRef = XLSX.utils.encode_cell({r, c:COLS_FIJOS + materias.length * SUB_COUNT});
+      if (ws[adRef]) {
+        const val = ws[adRef].v;
+        ws[adRef].s = val === 'Ninguna'
+          ? {fill:{fgColor:{rgb:'D1FAE5'}},font:{bold:true,color:{rgb:'1A6E3A'}},alignment:{vertical:'center',wrapText:true}}
+          : {fill:{fgColor:{rgb:'FFE0E0'}},font:{color:{rgb:'7C2D12'}},alignment:{vertical:'center',wrapText:true}};
+      }
+    });
+
+    // ── Fusionar celdas de nombres de materias en fila 1 ──
+    if (!ws['!merges']) ws['!merges'] = [];
+    // También fusionar las 3 columnas fijas en fila 1
+    ws['!merges'].push({s:{r:0,c:0},e:{r:1,c:0}}); // Apellido
+    ws['!merges'].push({s:{r:0,c:1},e:{r:1,c:1}}); // Nombre
+    ws['!merges'].push({s:{r:0,c:2},e:{r:1,c:2}}); // DNI
+    // Fusionar columna "Materias adeudadas" en filas 1-2
+    const colAdeudadas = COLS_FIJOS + materias.length * SUB_COUNT;
+    const refAd0 = XLSX.utils.encode_cell({r:0,c:colAdeudadas});
+    const refAd1 = XLSX.utils.encode_cell({r:1,c:colAdeudadas});
+    if (!ws[refAd0]) ws[refAd0]={v:'Materias adeudadas',t:'s'};
+    ws[refAd0].s={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'7C2D12'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+    ws['!merges'].push({s:{r:0,c:colAdeudadas},e:{r:1,c:colAdeudadas}});
+    if (!ws[refAd1]) ws[refAd1]={v:'',t:'s'};
+    materias.forEach((m, mi) => {
+      const startC = COLS_FIJOS + mi * SUB_COUNT;
+      ws['!merges'].push({s:{r:0,c:startC},e:{r:0,c:startC+SUB_COUNT-1}});
+    });
+
+    // Altura de filas de cabecera
+    ws['!rows'] = [{hpt:22},{hpt:20}];
+
+    const sheetName = curso.nombre.replace(/[:\/?*\[\]]/g,'').substring(0,31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
+
+  XLSX.writeFile(wb, `EEMPA_PlanillaFinal_${anio}.xlsx`);
+  toast('Planilla final descargada','success');
+}
+
+// Helper: aplicar estilos de notas a una worksheet (planilla por período)
+function _estilarWS(ws, rows, notaStartCol, notaEndCol) {
+  const totalCols = notaEndCol + 2;
+  for (let c=0; c<totalCols; c++) {
+    const ref = XLSX.utils.encode_cell({r:0,c});
+    if (!ws[ref]) continue;
+    ws[ref].s = {font:{bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'1E3A8A'}},alignment:{horizontal:'center'}};
+  }
+  rows.forEach((row,ri) => {
+    const r=ri+1;
+    for (let c=notaStartCol; c<notaEndCol; c++) {
+      const ref=XLSX.utils.encode_cell({r,c});
+      if (!ws[ref]||ws[ref].v==='') continue;
+      const val=ws[ref].v;
+      let rgb,fontRgb,bold=false;
+      if (val==='A'||val==='SC'){rgb='EEEEEE';fontRgb='555555';}
+      else{const n=parseInt(val);if(n<=3){rgb='FFE0E0';fontRgb='B52A2A';bold=true;}else if(n<=6){rgb='E0F5E8';fontRgb='1A6E3A';}else{rgb='E0EEFF';fontRgb='1E47C9';}}
+      ws[ref].s={fill:{fgColor:{rgb}},font:{bold,color:{rgb:fontRgb}},alignment:{horizontal:'center'}};
+    }
+    const promRef=XLSX.utils.encode_cell({r,c:notaEndCol});
+    if (ws[promRef]&&ws[promRef].v!==''){
+      const pv=parseFloat(ws[promRef].v);let pRgb='EEEEEE',pFont='555555';
+      if(!isNaN(pv)){if(pv<=3){pRgb='FFE0E0';pFont='B52A2A';}else if(pv<=6){pRgb='E0F5E8';pFont='1A6E3A';}else{pRgb='E0EEFF';pFont='1E47C9';}}
+      ws[promRef].s={fill:{fgColor:{rgb:pRgb}},font:{bold:true,color:{rgb:pFont}},alignment:{horizontal:'center'}};
+    }
+  });
 }
 
 // ═══════════════════════════════════════
@@ -1859,11 +1559,9 @@ async function exportarRelevamiento() {
 // ═══════════════════════════════════════
 async function loadDocMaterias() {
   const {data:periodo} = await sb.from('periodos').select('*').eq('estado','abierto').maybeSingle();
-  if (periodo) {
-    document.getElementById('docente-periodo-banner').innerHTML = '<div class="periodo-banner open">● Período abierto: '+tipoPeriodoLabel(periodo.tipo)+' '+periodo.anio+'</div>';
-  } else {
-    document.getElementById('docente-periodo-banner').innerHTML = '<div class="periodo-banner closed">⚠ No hay período abierto — podés ver las notas pero no editarlas</div>';
-  }
+  document.getElementById('docente-periodo-banner').innerHTML = periodo
+    ? `<div class="periodo-banner open">● Período abierto: ${tipoPeriodoLabel(periodo.tipo)} ${periodo.anio}</div>`
+    : `<div class="periodo-banner closed">⚠ No hay período abierto — podés ver las notas pero no editarlas</div>`;
 
   const {data:asigs} = await sb.from('docente_asignacion')
     .select('*, cursos(id,nombre), materias(id,nombre)').eq('docente_id',CU.id);
@@ -1940,7 +1638,7 @@ async function abrirNotas(cursoId, materiaId) {
 
   // Cargar calificaciones de períodos anteriores del mismo año (para filtrar y mostrar cal. final)
   // Orden lógico: 1C → 2C → REC → EXR
-  const ordenTipo = {'1C':1,'2C':2,'REC':3,'EXR':4};
+  const ordenTipo = {'REC':1,'RECUP':2,'EXR':3};
   const periodosAnteriores = (todosLosPeriodos||[]).filter(p =>
     p.anio === periodo.anio && ordenTipo[p.tipo] < ordenTipo[periodo.tipo]
   );
@@ -1957,52 +1655,65 @@ async function abrirNotas(cursoId, materiaId) {
   // Para cada alumno: determinar si ya tiene calificación final definida en período anterior
   // y cuál es su calificación final
   function getCalFinal(alumnoId) {
-    // Buscar en orden: 1C, 2C, REC (aprobado = final), EXR (siempre final)
-    // Recorrer períodos en orden lógico
+    // Buscar en orden: REC → RECUP → EXR
     const psOrdenados = periodosAnteriores.slice().sort((a,b) => ordenTipo[a.tipo]-ordenTipo[b.tipo]);
     let calFinal = null;
     for (const pa of psOrdenados) {
       const cal = calsAnteriores[pa.id]?.[alumnoId];
       if (pa.tipo === 'EXR') {
-        // EXR siempre define la final
+        // EXR siempre define la calificación final
         const n = notaEfectiva(cal);
         if (n != null) { calFinal = {nota: n, periodo: pa}; break; }
       } else {
-        // 1C, 2C, REC: solo si aprobó
+        // REC y RECUP: solo si aprobó (>= 7)
         if (estaAprobado(cal)) { calFinal = {nota: notaEfectiva(cal), periodo: pa}; break; }
       }
     }
     return calFinal;
   }
 
-  // Para REC: excluir alumnos aprobados en 1C o 2C
-  // Para EXR: excluir alumnos aprobados en 1C, 2C o REC
+  // Aplazó = nota 1, 2 o 3 (va directo a EXR, no puede rendir RECUP)
+  function estaAplazado(cal) {
+    const n = notaEfectiva(cal);
+    return n != null && n >= 1 && n <= 3;
+  }
+
   function alumnoExcluido(alumnoId) {
-    if (periodo.tipo === 'REC') {
-      // Excluir si aprobó en algún cuatrimestre del mismo año
-      const cuatris = periodosAnteriores.filter(p => p.tipo==='1C' || p.tipo==='2C');
-      return cuatris.some(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
+    if (periodo.tipo === 'RECUP') {
+      // Excluir si aprobó en REC (>= 7) → ya tiene calificación final
+      // Excluir si aplazó en REC (1-3) → va directo a EXR
+      const rec = periodosAnteriores.find(p => p.tipo === 'REC');
+      if (!rec) return false;
+      const calRec = calsAnteriores[rec.id]?.[alumnoId];
+      return estaAprobado(calRec) || estaAplazado(calRec);
     }
     if (periodo.tipo === 'EXR') {
-      // Excluir si aprobó en cuatrimestre o recuperatorio
-      const prevs = periodosAnteriores.filter(p => p.tipo==='1C'||p.tipo==='2C'||p.tipo==='REC');
+      // Excluir si aprobó en REC o RECUP
+      const prevs = periodosAnteriores.filter(p => p.tipo === 'REC' || p.tipo === 'RECUP');
       return prevs.some(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
     }
     return false;
   }
 
   function getAprobadoEnLabel(alumnoId) {
-    const cuatris = periodosAnteriores.filter(p => p.tipo==='1C'||p.tipo==='2C');
-    const aprobadoEn = cuatris.find(p => estaAprobado(calsAnteriores[p.id]?.[alumnoId]));
-    if (aprobadoEn) {
-      const n = notaEfectiva(calsAnteriores[aprobadoEn.id][alumnoId]);
-      return `Aprobado en ${tipoPeriodoLabel(aprobadoEn.tipo)} (${n})`;
+    // Verificar aprobado en REC
+    const rec = periodosAnteriores.find(p => p.tipo === 'REC');
+    if (rec && estaAprobado(calsAnteriores[rec.id]?.[alumnoId])) {
+      const n = notaEfectiva(calsAnteriores[rec.id][alumnoId]);
+      return `Aprobado en Calificación Parcial (${n})`;
     }
-    if (periodo.tipo === 'EXR') {
-      const rec = periodosAnteriores.find(p => p.tipo==='REC');
-      if (rec && estaAprobado(calsAnteriores[rec.id]?.[alumnoId])) {
-        const n = notaEfectiva(calsAnteriores[rec.id][alumnoId]);
-        return `Aprobado en Calificación Parcial (${n})`;
+    // Verificar aprobado en RECUP
+    const recup = periodosAnteriores.find(p => p.tipo === 'RECUP');
+    if (recup && estaAprobado(calsAnteriores[recup.id]?.[alumnoId])) {
+      const n = notaEfectiva(calsAnteriores[recup.id][alumnoId]);
+      return `Aprobado en Recuperatorio (${n})`;
+    }
+    // Verificar aplazado en REC (va directo a EXR)
+    if (periodo.tipo === 'RECUP' && rec) {
+      const calRec = calsAnteriores[rec.id]?.[alumnoId];
+      if (estaAplazado(calRec)) {
+        const n = notaEfectiva(calRec);
+        return `Aplazó en Calificación Parcial (${n}) — pasa a Examen Regular`;
       }
     }
     return null;
@@ -2039,14 +1750,27 @@ async function abrirNotas(cursoId, materiaId) {
       const dis = editable ? '' : 'disabled';
       const nc = getNotaClass(notaVal);
 
-      // Calificación final: para EXR siempre es la nota cargada; para otros solo si aprobó
+      // Calificación final según tipo de período
       let calFinalHTML = '<span style="color:var(--text3);font-size:12px;">—</span>';
       if (notaVal !== '') {
         const notaNum = notaEfectiva(cal);
         if (periodo.tipo === 'EXR' && notaNum != null) {
-          // EXR siempre define la final
           const cls = notaNum >= 7 ? 'badge-green' : 'badge-red';
           calFinalHTML = `<span class="badge ${cls}">${notaNum}</span>`;
+        } else if (periodo.tipo === 'REC' && notaNum != null) {
+          if (notaNum >= 7) {
+            calFinalHTML = `<span class="badge badge-green">${notaNum}</span>`;
+          } else if (notaNum <= 3) {
+            calFinalHTML = `<span class="badge badge-red" title="Aplazó — pasa a Examen Regular">${notaNum} → EXR</span>`;
+          } else {
+            calFinalHTML = `<span style="color:var(--text3);font-size:12px;">→ Recuperatorio</span>`;
+          }
+        } else if (periodo.tipo === 'RECUP' && notaNum != null) {
+          if (notaNum >= 7) {
+            calFinalHTML = `<span class="badge badge-green">${notaNum}</span>`;
+          } else {
+            calFinalHTML = `<span style="color:var(--text3);font-size:12px;">→ Examen Regular</span>`;
+          }
         } else if (estaAprobado(cal)) {
           calFinalHTML = `<span class="badge badge-green">${notaNum}</span>`;
         }
@@ -2083,7 +1807,7 @@ async function abrirNotas(cursoId, materiaId) {
   // Tabla secundaria: alumnos ya aprobados en instancias anteriores
   if (alumnosResueltos.length > 0) {
     html += `<div style="margin-top:20px;">
-      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">✓ Ya tienen calificación final</div>
+      <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em;">Alumnos con situación definida en esta instancia</div>
       <div class="table-wrap"><table>
         <thead><tr>
           <th>Alumno/a</th>
@@ -2094,10 +1818,21 @@ async function abrirNotas(cursoId, materiaId) {
       const label = getAprobadoEnLabel(a.id);
       const calFinal = getCalFinal(a.id);
       const notaFinal = calFinal ? calFinal.nota : '—';
+      // Detectar si es aplazado (pasa a EXR) o aprobado
+      const esAplazado = periodo.tipo === 'RECUP' && (() => {
+        const rec = periodosAnteriores.find(p => p.tipo === 'REC');
+        return rec && estaAplazado(calsAnteriores[rec.id]?.[a.id]);
+      })();
+      const badgeLabel = esAplazado
+        ? `<span class="badge badge-red">${label}</span>`
+        : `<span class="badge badge-green">${label||'Aprobado'}</span>`;
+      const notaBadge = esAplazado
+        ? `<span class="badge badge-gray">Pasa a Examen Regular</span>`
+        : `<span class="badge badge-green">${notaFinal}</span>`;
       html += `<tr style="opacity:.7;">
         <td style="padding:11px 14px;"><strong>${esc(a.apellido)}, ${esc(a.nombre)}</strong></td>
-        <td style="text-align:center;padding:11px 14px;"><span class="badge badge-green">${label||'Aprobado'}</span></td>
-        <td style="text-align:center;padding:11px 14px;background:#f8fdfb;"><span class="badge badge-green">${notaFinal}</span></td>
+        <td style="text-align:center;padding:11px 14px;">${badgeLabel}</td>
+        <td style="text-align:center;padding:11px 14px;background:#f8fdfb;">${notaBadge}</td>
       </tr>`;
     });
     html += '</tbody></table></div></div>';
@@ -2130,8 +1865,25 @@ function actualizarCalFinal(alumnoId, tipoPeriodo) {
   }
   const n = parseInt(val);
   if (tipoPeriodo === 'EXR') {
+    // EXR siempre define la calificación final
     const cls = n >= 7 ? 'badge-green' : 'badge-red';
     cfEl.innerHTML = `<span class="badge ${cls}">${n}</span>`;
+  } else if (tipoPeriodo === 'REC') {
+    // Parcial: aprobado >= 7, aplazado 1-3 va a EXR, 4-6 va a Recuperatorio
+    if (n >= 7) {
+      cfEl.innerHTML = `<span class="badge badge-green">${n}</span>`;
+    } else if (n <= 3) {
+      cfEl.innerHTML = `<span class="badge badge-red" title="Aplazó — pasa a Examen Regular">${n} → EXR</span>`;
+    } else {
+      cfEl.innerHTML = `<span style="color:var(--text3);font-size:12px;">→ Recuperatorio</span>`;
+    }
+  } else if (tipoPeriodo === 'RECUP') {
+    // Recuperatorio: aprobado >= 7, sino va a EXR
+    if (n >= 7) {
+      cfEl.innerHTML = `<span class="badge badge-green">${n}</span>`;
+    } else {
+      cfEl.innerHTML = `<span style="color:var(--text3);font-size:12px;">→ Examen Regular</span>`;
+    }
   } else if (n >= 7) {
     cfEl.innerHTML = `<span class="badge badge-green">${n}</span>`;
   } else {
@@ -2222,6 +1974,7 @@ async function toggleActivo(tabla, id, actual, label) {
 // ARRANQUE
 // ═══════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
+  // Usar credenciales hardcodeadas si no hay guardadas
   if (!localStorage.getItem(SB_URL_K)) localStorage.setItem(SB_URL_K, SB_URL_DEFAULT);
   if (!localStorage.getItem(SB_KEY_K)) localStorage.setItem(SB_KEY_K, SB_KEY_DEFAULT);
   if (!initSB()) { document.getElementById('config-overlay').classList.remove('hidden'); return; }
