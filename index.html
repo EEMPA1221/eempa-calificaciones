@@ -1502,25 +1502,7 @@ async function loadExportar() {
         ⬇ Descargar planilla Excel
       </button>
     </div>
-    <div class="card card-pad" style="max-width:480px;margin-top:16px;">
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;">📊 Planilla resumen anual</h3>
-      <p style="font-size:13px;color:var(--text3);margin-bottom:14px;">Incluye todos los períodos, nota final por cuatrimestre, promedio general y materias adeudadas.</p>
-      <div class="field" style="margin-bottom:14px;"><label>Año</label>
-        <select id="exp-anio">${[...new Set((ps||[]).map(p=>p.anio))].sort((a,b)=>b-a).map(a=>`<option value="${a}">${a}</option>`).join('')}</select>
-      </div>
-      <div class="field" style="margin-bottom:20px;"><label>Curso</label>
-        <select id="exp-curso-resumen">
-          <option value="todos">Todos los cursos (una hoja por curso)</option>
-          ${(cursos||[]).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
-        </select>
-      </div>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;margin-bottom:10px;width:100%;" onclick="exportarResumenCuatrimestre(1)">
-        ⬇ Descargar resumen 1° Cuatrimestre
-      </button>
-      <button class="btn btn-primary" style="font-size:14px;padding:11px 20px;width:100%;" onclick="exportarResumenCuatrimestre(2)">
-        ⬇ Descargar resumen 2° Cuatrimestre
-      </button>
-    </div>
+
     <div class="card card-pad" style="max-width:480px;margin-top:16px;border:2px solid var(--accent);">
       <div style="font-size:14px;font-weight:700;margin-bottom:4px;">📊 Planilla de calificaciones</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:14px;">
