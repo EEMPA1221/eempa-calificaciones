@@ -1336,16 +1336,19 @@ async function exportarResumenCuatrimestre(cual) {
       if (!c) return '';
       return c.nota_especial ? c.nota_especial : (c.nota!=null ? c.nota : '');
     };
-    const aprobada = (n) => n!==''&&n!=='A'&&n!=='SC'&&parseInt(n)>=7;
+    const esNumero = (n) => n!==''&&n!=='A'&&n!=='SC'&&!isNaN(parseInt(n));
+    const aprobada = (n) => esNumero(n) && parseInt(n)>=7;
     const getNotaFinal = (alumnoId, materiaId) => {
       const nb = getNota(alumnoId, materiaId, pBase&&pBase.id);
       const nr = getNota(alumnoId, materiaId, prec&&prec.id);
       const ne = getNota(alumnoId, materiaId, pexr&&pexr.id);
-      if (aprobada(nb)) return {nota:nb, aprobada:true};
-      if (aprobada(nr)) return {nota:nr, aprobada:true};
-      if (aprobada(ne)) return {nota:ne, aprobada:true};
-      const ultima = ne!==''?ne:nr!==''?nr:nb;
-      return {nota:ultima, aprobada:false};
+      // Ultima nota NUMERICA registrada (ignora A/SC al final)
+      const ultimaNumerica = esNumero(ne) ? ne : esNumero(nr) ? nr : esNumero(nb) ? nb : '';
+      if (ultimaNumerica === '') {
+        const ultima = ne!==''?ne:nr!==''?nr:nb;
+        return {nota:ultima, aprobada:false};
+      }
+      return {nota:ultimaNumerica, aprobada:aprobada(ultimaNumerica)};
     };
     const cuatLabel = cual===1?'1° Cuatrimestre':'2° Cuatrimestre';
     const header1 = ['Apellido','Nombre','DNI'];
